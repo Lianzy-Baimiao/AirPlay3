@@ -1,6 +1,6 @@
 [package]
 name = "airplay3"
-version = "3.5.0"
+version = "3.5.1"
 edition = "2024"
 rust-version = "1.85"
 description = "AirPlay3 本地音乐播放器 (Rust 重写版)"

@@ -55,7 +55,12 @@ impl App {
                     Widget::Check(k, _) => (model::get(s, *k), String::new()),
                     Widget::Choice(_, v, _) => (false, v.clone()),
                     Widget::Text(f, _) => (false, model::text(s, *f)),
-                    Widget::Hotkey(a) => (false, s.hotkeys.combo(*a).map_or("未设置".to_string(), |c| crate::platform::hotkeys::combo_text(&c))),
+                    Widget::Hotkey(a) => {
+                        let text = s.hotkeys.combo(*a).map_or("未设置".to_string(), |c| crate::platform::hotkeys::combo_text(&c));
+                        // 注册失败（被其它程序占用）的热键直接标出来，不用等改键时才知道
+                        let busy = s.hotkeys.enabled && s.hotkeys.combo(*a).is_some() && self.hotkey_failed.contains(a);
+                        (false, if busy { format!("{text}（已被其他程序占用）") } else { text })
+                    }
                     _ => (false, String::new()),
                 };
                 (w, on, val)
