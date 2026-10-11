@@ -246,11 +246,13 @@ pub struct LyricSettings {
     pub custom_dir: Option<String>,
     /// 启用自动下载（默认关闭：会把歌名发送到 LRCLIB）
     pub auto_download: bool,
+    /// 自动下载时也下载专辑图片（没有内嵌 / 本地图片时，从 iTunes 下载并保存到本地）
+    pub album_pic: bool,
 }
 
 impl Default for LyricSettings {
     fn default() -> Self {
-        Self { show_lyric: true, show_cover: true, embedded_pic: true, local_pic: true, custom_dir: None, auto_download: false }
+        Self { show_lyric: true, show_cover: true, embedded_pic: true, local_pic: true, custom_dir: None, auto_download: false, album_pic: true }
     }
 }
 

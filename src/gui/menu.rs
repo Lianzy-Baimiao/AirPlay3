@@ -49,6 +49,8 @@ pub enum Act {
     LyricFile,
     LyricUnlink,
     LyricOffset(i64),
+    CoverDownload,
+    CoverFile,
     CoverUnlink,
     LyricAuto,
     LyricDir,

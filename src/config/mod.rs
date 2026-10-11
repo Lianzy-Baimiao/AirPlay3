@@ -70,6 +70,10 @@ impl DataDirs {
     pub fn cache_dir(&self) -> PathBuf {
         self.root.join("CACHE")
     }
+    /// 下载的专辑图片存放位置
+    pub fn cover_dir(&self) -> PathBuf {
+        self.cache_dir().join("COVER")
+    }
 
     /// 是否是 exe 旁的便携目录。
     pub fn is_portable(&self) -> bool {

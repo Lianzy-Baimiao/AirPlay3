@@ -38,12 +38,14 @@ pub struct CoverModel<'a> {
     /// 信息浮层透明度 0..1
     pub info: f32,
     pub strip_hover: f32,
+    /// 临时提示（下载专辑图片的结果），替换顶部的说明文字
+    pub status: Option<&'a str>,
 }
 
 pub fn paint(c: &mut Canvas, m: &CoverModel) {
     let body = frame::panel(c, m.strip_hover);
     c.push_clip(body);
-    let hint = "歌曲及歌词相关信息均来自互联网";
+    let hint = m.status.unwrap_or("歌曲及歌词相关信息均来自互联网");
     let tw = crate::gui::text::measure(hint, FONT).0 as i32;
     c.text(hint, FONT, (c.w - tw) / 2, body.y + 3, Rgba::gray(150), Hint::ClearType);
     if !m.active {

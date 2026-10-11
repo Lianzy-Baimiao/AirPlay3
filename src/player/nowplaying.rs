@@ -77,6 +77,30 @@ fn load_cover(t: &Track, ls: &LyricSettings) -> Option<CoverImage> {
     Some(CoverImage { size: [w as usize, h as usize], rgba: Arc::new(rgba), raw: Arc::new(raw) })
 }
 
+/// 下载的歌词保存位置：设置了自定义歌词目录时存到那里，否则存到程序的 LYRIC 目录
+pub fn save_lyric_dir(core: &super::Core) -> PathBuf {
+    core.settings.lyrics.custom_dir.as_ref().filter(|d| !d.trim().is_empty()).map(PathBuf::from).unwrap_or_else(|| core.dirs.lyric_dir())
+}
+
+/// 从网上找专辑图片，保存到 `dir` 并关联到曲目，正在播放这首时立即显示。返回是否找到。
+fn fetch_cover(p: &Player, now: &SharedNow, t: &Track, net: &crate::config::NetworkSettings, dir: &std::path::Path, loose: bool) -> Result<bool, String> {
+    let Some(bytes) = crate::media::artwork::find(net, &t.display_title(), &t.artist, t.duration, loose)? else { return Ok(false) };
+    let path = crate::media::artwork::save(&bytes, dir, &t.artist, &t.album, &t.display_title()).map_err(|e| format!("保存图片失败: {e}"))?;
+    if let Some(tr) = p.core.lock().lib.track_mut(t.id) {
+        (tr.cover_path, tr.cover_unlinked) = (Some(path.clone()), false);
+    }
+    let (w, h, rgba) = decode_rgba(&bytes, 640).ok_or("图片无法解码")?;
+    {
+        let mut n = now.lock();
+        if n.track == Some(t.id) {
+            n.cover = Some(CoverImage { size: [w as usize, h as usize], rgba: Arc::new(rgba), raw: Arc::new(bytes) });
+            n.rev += 1;
+        }
+    }
+    p.repaint();
+    Ok(true)
+}
+
 fn set_lyrics(now: &SharedNow, id: TrackId, lyr: Option<(Lyrics, LyricSource)>) {
     let mut n = now.lock();
     if n.track == Some(id) {
@@ -101,7 +125,8 @@ impl Player {
             *n = NowPlaying { rev: n.rev + 1, ..Default::default() };
             return;
         };
-        let (dirs, ls, net, lyric_dir) = (g.lyric_dirs(), g.settings.lyrics.clone(), g.settings.network.clone(), g.dirs.lyric_dir());
+        let (dirs, ls, net, lyric_dir, cover_dir) =
+            (g.lyric_dirs(), g.settings.lyrics.clone(), g.settings.network.clone(), save_lyric_dir(&g), g.dirs.cover_dir());
         drop(g);
         {
             let mut n = now.lock();
@@ -135,20 +160,46 @@ impl Player {
                     n.rev += 1;
                 }
             }
+            let no_cover = now.lock().cover.is_none();
             p.repaint();
             if !found && ls.auto_download && !t.lyric_unlinked {
                 match crate::lyrics::lrclib::best_match(&net, &t.display_title(), &t.artist, &t.album, t.duration) {
-                    Ok(Some(rec)) => {
-                        if crate::lyrics::lrclib::save(&rec, &lyric_dir, &t.display_title(), &t.artist).is_ok() {
-                            set_lyrics(&now, t.id, load_lyrics(&t, &dirs));
+                    Ok(Some(rec)) => match crate::lyrics::lrclib::save(&rec, &lyric_dir, &t.display_title(), &t.artist) {
+                        // 下载后保存到本地并关联到这首歌，下次直接用本地文件
+                        Ok(path) => {
+                            p.link_lyric_file(t.id, &path);
+                            set_lyrics(&now, t.id, crate::lyrics::read_lrc_file(&path).map(|l| (l, LyricSource::File(path))));
                             p.repaint();
                         }
-                    }
+                        Err(e) => log::warn!("保存歌词失败: {e}"),
+                    },
                     Ok(None) => {}
                     Err(e) => log::info!("自动下载歌词失败: {e}"),
                 }
             }
+            if no_cover && ls.auto_download && ls.album_pic && !t.cover_unlinked {
+                if let Err(e) = fetch_cover(&p, &now, &t, &net, &cover_dir, false) {
+                    log::info!("自动下载专辑图片失败: {e}");
+                }
+            }
         });
+    }
+
+    /// 关联歌词文件但不重新加载（后台下载完成时用）
+    fn link_lyric_file(&self, id: TrackId, path: &std::path::Path) {
+        if let Some(t) = self.core.lock().lib.track_mut(id) {
+            (t.lyric_path, t.lyric_unlinked) = (Some(path.to_path_buf()), false);
+        }
+    }
+
+    /// 手动「下载专辑图片」：在调用线程上联网，找到后保存到本地并关联。返回是否找到。
+    pub fn download_cover(&self, id: TrackId, now: &SharedNow) -> Result<bool, String> {
+        let (t, net, dir) = {
+            let g = self.core.lock();
+            let Some(t) = g.lib.track(id).cloned() else { return Ok(false) };
+            (t, g.settings.network.clone(), g.dirs.cover_dir())
+        };
+        fetch_cover(self, now, &t, &net, &dir, true)
     }
 
     pub fn set_lyric_link(&self, id: TrackId, link: Link, now: &SharedNow) {

@@ -54,6 +54,7 @@ impl App {
                     lyric_mode: ui.lyric_mode,
                     info: ui.info,
                     strip_hover: ui.strip_hover[1],
+                    status: ui.cover_status.as_ref().map(|(s, _)| s.as_str()),
                 };
                 cover::paint(c, &m);
             }

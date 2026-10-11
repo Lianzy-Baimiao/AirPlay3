@@ -14,6 +14,9 @@ pub enum AsyncMsg {
     /// 歌词搜索结果：(结果, 是否放宽为只按标题)
     LyricResults(u64, Result<(Vec<crate::lyrics::lrclib::Record>, bool), String>),
     LyricFile(crate::library::TrackId, std::path::PathBuf),
+    CoverFile(crate::library::TrackId, std::path::PathBuf),
+    /// 手动下载专辑图片的结果：Ok(是否找到)
+    CoverDone(Result<bool, String>),
     LyricDir(std::path::PathBuf),
 }
 
@@ -61,9 +64,11 @@ impl App {
             item("歌词提前 0.5 秒", Act::LyricOffset(500)),
             item("歌词延后 0.5 秒", Act::LyricOffset(-500)),
             Item::Sep,
+            item("下载专辑图片", Act::CoverDownload),
+            item("关联本地图片…", Act::CoverFile),
             item("取消图片关联", Act::CoverUnlink),
             Item::Sep,
-            check("启用自动下载歌词", None, auto, Act::LyricAuto),
+            check("启用自动下载歌词图片", None, auto, Act::LyricAuto),
             item("打开歌词文件夹", Act::LyricDir),
         ]
     }
@@ -186,6 +191,8 @@ impl App {
             Act::LyricMenu => self.popup(self.lyric_menu()),
             Act::LyricSearch => self.open_lyric_search(),
             Act::LyricFile => self.pick_lyric_file(),
+            Act::CoverDownload => self.download_cover(),
+            Act::CoverFile => self.pick_cover_file(),
             Act::LyricUnlink | Act::CoverUnlink | Act::LyricOffset(_) => {
                 if let Some(id) = self.ui.snap.current {
                     use crate::player::nowplaying::Link;
@@ -359,6 +366,19 @@ impl App {
                 }
                 AsyncMsg::LyricFile(id, path) => {
                     self.player.set_lyric_link(id, crate::player::nowplaying::Link::File(path), &self.now);
+                    self.dirty(Pane::Cover);
+                }
+                AsyncMsg::CoverFile(id, path) => {
+                    self.player.set_cover_link(id, crate::player::nowplaying::Link::File(path), &self.now);
+                    self.dirty(Pane::Cover);
+                }
+                AsyncMsg::CoverDone(r) => {
+                    let msg = match r {
+                        Ok(true) => "专辑图片已下载并保存到本地".to_string(),
+                        Ok(false) => "没有找到这首歌的专辑图片".to_string(),
+                        Err(e) => format!("下载专辑图片失败：{e}"),
+                    };
+                    self.ui.cover_status = Some((msg, std::time::Instant::now()));
                     self.dirty(Pane::Cover);
                 }
             }

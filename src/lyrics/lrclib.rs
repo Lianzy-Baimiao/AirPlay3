@@ -53,7 +53,8 @@ fn pct(s: &str) -> String {
         .collect()
 }
 
-fn agent(net: &NetworkSettings) -> Result<ureq::Agent, String> {
+/// 联网用的 HTTP 客户端（代理、TLS、超时与界面设置一致），专辑图片下载也用它
+pub fn agent(net: &NetworkSettings) -> Result<ureq::Agent, String> {
     // 未配置自定义代理时沿用环境变量 / Windows 系统代理（与浏览器一致）
     let proxy = match proxy_url(net) {
         Some(u) => Some(ureq::Proxy::new(&u).map_err(|e| format!("代理设置无效: {e}"))?),

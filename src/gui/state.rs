@@ -63,6 +63,8 @@ pub struct UiState {
     pub eq_hot: Option<usize>,
     pub drag: Drag,
     pub last_frame: Instant,
+    /// 歌词图片面板顶部临时显示的提示（下载专辑图片的结果），显示几秒后恢复原来的说明文字
+    pub cover_status: Option<(String, Instant)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -99,6 +101,7 @@ impl UiState {
             eq_hot: None,
             drag: Drag::None,
             last_frame: Instant::now(),
+            cover_status: None,
         }
     }
 }
@@ -206,7 +209,12 @@ impl App {
         for i in 0..4 {
             strips[i] = approach(&mut ui.strip_hover[i], if ui.hover[i] { 1.0 } else { 0.0 }, 0.2);
         }
-        let cover = self.tick_cover(now);
+        let mut cover = self.tick_cover(now);
+        // 下载提示显示 4 秒（"正在下载"一直显示到有结果）
+        if self.ui.cover_status.as_ref().is_some_and(|(s, t)| !s.starts_with("正在") && now - *t > Duration::from_secs(4)) {
+            self.ui.cover_status = None;
+            cover = true;
+        }
         if bar || strips[0] {
             self.dirty(Pane::Bar);
         }
