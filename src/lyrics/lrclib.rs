@@ -74,43 +74,95 @@ fn agent(net: &NetworkSettings) -> Result<ureq::Agent, String> {
     Ok(cfg.into())
 }
 
+/// LRCLIB 过载时会偶发返回 503 ServerOverloaded（与查询内容无关，同一请求重发即可成功），这类状态码自动重试
+fn is_busy(status: u16) -> bool {
+    matches!(status, 429 | 502 | 503 | 504)
+}
+
+/// 两次重试前的等待（毫秒）；服务器给了 Retry-After 时以它为准（最多等 3 秒）
+const RETRY_WAITS_MS: [u64; 2] = [800, 1600];
+
+fn retry_wait_ms(retry_after: Option<&str>, attempt: usize) -> u64 {
+    retry_after.and_then(|v| v.trim().parse::<u64>().ok()).map_or(RETRY_WAITS_MS[attempt], |s| (s * 1000).min(3000))
+}
+
+fn status_error(status: u16) -> String {
+    if is_busy(status) || status >= 500 { "LRCLIB 服务器繁忙，请稍后再试".into() } else { format!("LRCLIB 返回 HTTP {status}") }
+}
+
+/// GET `API/path?params`，服务器繁忙时重试，返回最后一次的状态码与响应
+fn call(net: &NetworkSettings, path: &str, params: &[(&str, String)]) -> Result<(u16, ureq::http::Response<ureq::Body>), String> {
+    let agent = agent(net)?;
+    let mut attempt = 0;
+    loop {
+        let mut req = agent.get(format!("{API}/{path}"));
+        for (k, v) in params {
+            req = req.query(*k, v.as_str());
+        }
+        let resp = req.call().map_err(|e| e.to_string())?;
+        let status = resp.status().as_u16();
+        if !is_busy(status) || attempt >= RETRY_WAITS_MS.len() {
+            return Ok((status, resp));
+        }
+        let wait = retry_wait_ms(resp.headers().get("retry-after").and_then(|v| v.to_str().ok()), attempt);
+        log::info!("LRCLIB 返回 HTTP {status}，{wait} 毫秒后重试");
+        std::thread::sleep(Duration::from_millis(wait));
+        attempt += 1;
+    }
+}
+
 /// 精确查询（需要时长）。没有结果返回 Ok(None)。
 pub fn get(net: &NetworkSettings, title: &str, artist: &str, album: &str, duration: f64) -> Result<Option<Record>, String> {
-    let mut req = agent(net)?.get(format!("{API}/get")).query("track_name", title).query("artist_name", artist);
+    let mut p = vec![("track_name", title.to_string()), ("artist_name", artist.to_string())];
     if !album.is_empty() {
-        req = req.query("album_name", album);
+        p.push(("album_name", album.to_string()));
     }
-    let mut resp = req.query("duration", format!("{}", duration.round() as i64)).call().map_err(|e| e.to_string())?;
-    match resp.status().as_u16() {
+    p.push(("duration", format!("{}", duration.round() as i64)));
+    let (status, mut resp) = call(net, "get", &p)?;
+    match status {
         200 => resp.body_mut().read_json::<Record>().map(Some).map_err(|e| e.to_string()),
         404 => Ok(None),
-        s => Err(format!("LRCLIB 返回 HTTP {s}")),
+        s => Err(status_error(s)),
     }
 }
 
 /// 关键字搜索。
 pub fn search(net: &NetworkSettings, title: &str, artist: &str) -> Result<Vec<Record>, String> {
-    let mut req = agent(net)?.get(format!("{API}/search")).query("track_name", title);
+    let mut p = vec![("track_name", title.to_string())];
     if !artist.is_empty() {
-        req = req.query("artist_name", artist);
+        p.push(("artist_name", artist.to_string()));
     }
-    let mut resp = req.call().map_err(|e| e.to_string())?;
-    match resp.status().as_u16() {
+    let (status, mut resp) = call(net, "search", &p)?;
+    match status {
         200 => resp.body_mut().read_json::<Vec<Record>>().map_err(|e| e.to_string()),
-        s => Err(format!("LRCLIB 返回 HTTP {s}")),
+        s => Err(status_error(s)),
     }
 }
 
+/// 搜索窗口用：先按 标题 + 艺人 搜，没有结果再只按标题搜（艺人标签常常是上传者，例如「起点音乐」）。
+/// 返回 (结果, 是否放宽为只按标题)。
+pub fn search_loose(net: &NetworkSettings, title: &str, artist: &str) -> Result<(Vec<Record>, bool), String> {
+    let v = search(net, title, artist)?;
+    if !v.is_empty() || artist.trim().is_empty() {
+        return Ok((v, false));
+    }
+    Ok((search(net, title, "")?, true))
+}
+
 /// 自动下载：先精确查询，再搜索取最匹配（有时间轴、时长接近）的一条。
+/// 标题 / 艺人先清理（去掉 `(Live)`、`【六倍音质】`、多位艺人等），不放宽艺人，避免自动下错歌词。
 pub fn best_match(net: &NetworkSettings, title: &str, artist: &str, album: &str, duration: f64) -> Result<Option<Record>, String> {
+    use super::query::{clean_artist, clean_title};
+    let (title, artist, album) = (clean_title(title), clean_artist(artist), clean_title(album));
     if duration > 0.0 {
-        if let Some(r) = get(net, title, artist, album, duration)? {
-            if r.has_synced() || r.plain_lyrics.is_some() {
-                return Ok(Some(r));
-            }
+        // 精确查询失败（含服务器繁忙）不影响后面的搜索
+        match get(net, &title, &artist, &album, duration) {
+            Ok(Some(r)) if r.has_synced() || r.plain_lyrics.is_some() => return Ok(Some(r)),
+            Ok(_) => {}
+            Err(e) => log::info!("LRCLIB 精确查询失败: {e}"),
         }
     }
-    let mut list = search(net, title, artist)?;
+    let mut list = search(net, &title, &artist)?;
     list.retain(|r| !r.instrumental && (r.has_synced() || r.plain_lyrics.is_some()));
     let score = |r: &Record| {
         let dd = if duration > 0.0 { (r.duration - duration).abs() } else { 0.0 };
@@ -138,6 +190,19 @@ pub fn save(rec: &Record, dir: &Path, title: &str, artist: &str) -> std::io::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn busy_retry_policy() {
+        assert!(is_busy(503) && is_busy(429) && is_busy(502) && is_busy(504));
+        assert!(!is_busy(200) && !is_busy(404) && !is_busy(400));
+        assert_eq!(retry_wait_ms(None, 0), 800);
+        assert_eq!(retry_wait_ms(None, 1), 1600);
+        assert_eq!(retry_wait_ms(Some("2"), 0), 2000);
+        assert_eq!(retry_wait_ms(Some("120"), 1), 3000);
+        assert_eq!(retry_wait_ms(Some("abc"), 1), 1600);
+        assert_eq!(status_error(503), "LRCLIB 服务器繁忙，请稍后再试");
+        assert_eq!(status_error(403), "LRCLIB 返回 HTTP 403");
+    }
 
     #[test]
     fn proxy_urls() {

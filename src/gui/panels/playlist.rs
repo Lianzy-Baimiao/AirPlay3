@@ -7,7 +7,9 @@ use crate::skin::icons;
 
 pub const W: i32 = 324;
 pub const H: i32 = 431;
-pub const MIN: (i32, i32) = (260, 200);
+/// 外框尺寸范围：原版主体 260×204 ～ 800×800，加上标题条与边（宽 +4、高 +21）
+pub const MIN: (i32, i32) = (264, 225);
+pub const MAX: (i32, i32) = (804, 821);
 pub const TOOL: [R; 3] = [R::new(18, 24, 15, 15), R::new(67, 24, 15, 15), R::new(116, 24, 15, 15)];
 pub const ROW_H: i32 = 21;
 

@@ -3,6 +3,7 @@
 pub mod find;
 pub mod lrc;
 pub mod lrclib;
+pub mod query;
 
 use std::path::{Path, PathBuf};
 

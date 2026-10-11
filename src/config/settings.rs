@@ -361,14 +361,31 @@ pub struct WindowState {
     pub show_cover: bool,
     pub show_eq: bool,
     pub show_list: bool,
-    /// 可调整的面板尺寸（像素）：音乐列表宽高、歌词图片高度
+    /// 可调整的面板尺寸（像素）：音乐列表宽高、歌词图片宽高
     pub list_size: [i32; 2],
     pub cover_h: i32,
+    pub cover_w: i32,
+    /// 歌词图片、均衡器、音乐列表相对播放条左上角的位置（面板可以拖开）；没有时用默认布局
+    pub pane_offsets: Option<[[i32; 2]; 3]>,
 }
 
 impl Default for WindowState {
     fn default() -> Self {
-        Self { main: None, maximized: false, compact: false, mini: false, mini_pos: None, sidebar_width: 190.0, show_cover: true, show_eq: true, show_list: true, list_size: [324, 431], cover_h: 225 }
+        Self {
+            main: None,
+            maximized: false,
+            compact: false,
+            mini: false,
+            mini_pos: None,
+            sidebar_width: 190.0,
+            show_cover: true,
+            show_eq: true,
+            show_list: true,
+            list_size: [324, 431],
+            cover_h: 225,
+            cover_w: 304,
+            pane_offsets: None,
+        }
     }
 }
 

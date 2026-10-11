@@ -11,7 +11,8 @@ use crate::skin::icons;
 
 pub enum AsyncMsg {
     Files(Vec<std::path::PathBuf>, crate::library::ListId),
-    LyricResults(u64, Result<Vec<crate::lyrics::lrclib::Record>, String>),
+    /// 歌词搜索结果：(结果, 是否放宽为只按标题)
+    LyricResults(u64, Result<(Vec<crate::lyrics::lrclib::Record>, bool), String>),
     LyricFile(crate::library::TrackId, std::path::PathBuf),
     LyricDir(std::path::PathBuf),
 }

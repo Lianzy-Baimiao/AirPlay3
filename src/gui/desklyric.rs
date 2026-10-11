@@ -88,7 +88,8 @@ impl App {
         }
         let (w, h) = self.desk_size();
         if self.desk.is_none() {
-            let a = super::popup::work_area_at((self.origin.0 + 100, self.origin.1 + 50));
+            let (bx, by) = self.bar_pos();
+            let a = super::popup::work_area_at((bx + 100, by + 50));
             let (x, y) = pos.map_or((a.x + (a.w - w) / 2, a.bottom() - h - 60), |p| (p[0], p[1]));
             let win = Popup::new(x, y, w, h, None, "AirPlay3 桌面歌词");
             unsafe {

@@ -52,7 +52,7 @@ impl App {
             self.restore();
             return;
         }
-        let (x, y) = self.origin;
+        let (x, y) = self.bar_pos();
         let top = Popup::new(x, y, W, H, None, "AirPlay3 迷你条");
         let bottom = Popup::new(x, y + GAP, W, H, Some(top.hwnd), "AirPlay3 迷你歌词");
         unsafe {
@@ -128,7 +128,6 @@ impl App {
                     let (cx, cy) = super::resize::cursor();
                     m.top.move_to(cx - dx, cy - dy);
                     m.bottom.move_to(cx - dx, cy - dy + GAP);
-                    self.origin = (cx - dx, cy - dy);
                     self.move_to(cx - dx, cy - dy);
                 } else if !m.hover[which] {
                     m.hover[which] = true;

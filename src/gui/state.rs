@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use super::app::{App, Pane};
+use super::canvas::R;
 use crate::config::PlayMode;
 use crate::library::{ListId, ListKind, TrackId};
 use crate::player::Player;
@@ -67,15 +68,15 @@ pub struct UiState {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Drag {
     None,
-    /// 拖动整组窗口：按下时鼠标相对播放条左上角的偏移
-    Move(i32, i32),
+    /// 移动：按住的面板、按下时的鼠标位置、各面板按下时的外框与是否一起移动（按 `resize::SNAP_ORDER`）
+    Move { lead: Pane, cursor: (i32, i32), rects: [R; 4], moving: [bool; 4], taskbar: Option<R> },
     Seek,
     Volume,
     EqSlider(usize),
     /// 拖动滚动条滑块：按下时的 y 与滚动量
     Scroll(i32, i32),
-    /// 调整面板大小：面板、边、按下时鼠标相对窗口宽高的偏移
-    Resize(Pane, super::resize::Edge, i32, i32),
+    /// 调整面板大小：面板、拖动的边（`snap::LEFT` 等）、按下时的鼠标位置与各面板外框
+    Resize { pane: Pane, edges: u32, cursor: (i32, i32), rects: [R; 4], taskbar: Option<R> },
 }
 
 impl UiState {
@@ -106,8 +107,10 @@ impl UiState {
 pub fn initial_origin(p: &Player) -> (i32, i32) {
     let saved = p.core.lock().settings.window.main;
     if let Some(r) = saved {
-        if crate::platform::window::point_on_screen(r.x + 20.0, r.y + 20.0) {
-            return (r.x as i32, r.y as i32);
+        // 播放条左上部能被拖到即可（吸附到屏幕边时外框会在 -1）
+        let (x, y) = (r.x as i32, r.y as i32);
+        if crate::platform::window::point_on_screen(x + 40, y + 20) {
+            return (x, y);
         }
     }
     use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};

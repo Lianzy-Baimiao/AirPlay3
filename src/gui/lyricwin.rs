@@ -26,16 +26,19 @@ pub struct LyricSearch {
     pub busy: bool,
     pub seq: u64,
     pub drag: Option<(i32, i32)>,
+    /// 当前歌曲时长（秒），用于把时长接近的结果排在前面
+    pub duration: f64,
 }
 
 impl App {
-    /// 打开搜索窗口（预填当前歌曲的标题与艺人）并立即搜索
+    /// 打开搜索窗口（预填清理过的标题与艺人，可再修改）并立即搜索
     pub fn open_lyric_search(&mut self) {
         let Some(id) = self.ui.snap.current else { return };
-        let (title, artist) = {
+        let (title, artist, duration) = {
             let g = self.player.core.lock();
-            g.lib.track(id).map(|t| (t.display_title(), t.artist.clone())).unwrap_or_default()
+            g.lib.track(id).map(|t| (t.display_title(), t.artist.clone(), t.duration)).unwrap_or_default()
         };
+        let (title, artist) = (crate::lyrics::query::clean_title(&title), crate::lyrics::query::clean_artist(&artist));
         if let Some(mut old) = self.search.take() {
             old.win.close();
         }
@@ -55,6 +58,7 @@ impl App {
             busy: false,
             seq: 0,
             drag: None,
+            duration,
         });
         self.paint_search();
         if let Some(s) = &self.search {
@@ -74,7 +78,8 @@ impl App {
         let (tx, hwnd) = (self.async_tx.clone(), self.bar_hwnd().0 as isize);
         std::thread::spawn(move || {
             // 后台线程出错也要让界面得到结果，不能一直显示“正在搜索”
-            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::lyrics::lrclib::search(&net, &title, &artist)))
+            let (title, artist) = (title.trim().to_string(), artist.trim().to_string());
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::lyrics::lrclib::search_loose(&net, &title, &artist)))
                 .unwrap_or_else(|_| Err("内部错误".into()));
             let _ = tx.send(AsyncMsg::LyricResults(seq, r));
             unsafe {
@@ -83,17 +88,25 @@ impl App {
         });
     }
 
-    pub fn on_lyric_results(&mut self, seq: u64, r: Result<Vec<Record>, String>) {
+    pub fn on_lyric_results(&mut self, seq: u64, r: Result<(Vec<Record>, bool), String>) {
         let Some(s) = self.search.as_mut() else { return };
         if s.seq != seq {
             return;
         }
         s.busy = false;
         match r {
-            Ok(mut v) => {
-                // 带时间轴的排在前面
-                v.sort_by_key(|r| !r.has_synced());
-                s.status = if v.is_empty() { "没有找到，试试修改标题或艺人".into() } else { format!("找到 {} 条，双击或点「下载」使用", v.len()) };
+            Ok((mut v, loose)) => {
+                // 带时间轴的在前；同类里时长与当前歌曲接近的在前（只按标题搜时同名歌很多）
+                let dur = s.duration;
+                let dist = |r: &Record| if dur > 0.0 && r.duration > 0.0 { (r.duration - dur).abs() } else { f64::MAX };
+                v.sort_by(|a, b| b.has_synced().cmp(&a.has_synced()).then(dist(a).total_cmp(&dist(b))));
+                s.status = if v.is_empty() {
+                    "没有找到，试试修改标题或艺人".into()
+                } else if loose {
+                    format!("按标题找到 {} 条，艺人可能不同", v.len())
+                } else {
+                    format!("找到 {} 条，双击或点「下载」使用", v.len())
+                };
                 s.selected = if v.is_empty() { None } else { Some(0) };
                 s.results = v;
                 s.scroll = 0;

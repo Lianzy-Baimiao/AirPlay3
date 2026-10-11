@@ -14,6 +14,7 @@ pub mod panels;
 mod popup;
 mod resize;
 mod settings_model;
+mod snap;
 mod settingswin;
 mod state;
 mod taskbar;

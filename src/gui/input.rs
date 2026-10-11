@@ -1,22 +1,12 @@
 //! 鼠标与键盘：悬停、点击、拖动（移动整组窗口 / 进度 / 音量 / 均衡器滑杆）、滚轮、搜索输入。
 
-use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
-use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 use super::app::{App, Pane};
 use super::menu::Act;
 use super::panels::bar::{self, Hot};
 use super::panels::{eq, frame, playlist};
 use super::state::Drag;
-
-fn cursor() -> (i32, i32) {
-    let mut p = POINT::default();
-    unsafe {
-        let _ = GetCursorPos(&mut p);
-    }
-    (p.x, p.y)
-}
 
 impl App {
     fn idx(p: Pane) -> usize {
@@ -30,11 +20,7 @@ impl App {
 
     pub fn mouse_move(&mut self, pane: Pane, x: i32, y: i32) {
         match self.ui.drag {
-            Drag::Move(dx, dy) => {
-                let (cx, cy) = cursor();
-                self.move_to(cx - dx, cy - dy);
-                return;
-            }
+            Drag::Move { .. } => return self.move_drag(),
             Drag::Seek => return self.seek_at(x),
             Drag::Volume => return self.volume_at(y),
             Drag::EqSlider(i) => return self.eq_at(i, y),
@@ -48,7 +34,7 @@ impl App {
                 self.ui.list.scroll = target.clamp(0, max);
                 return self.dirty(Pane::List);
             }
-            Drag::Resize(..) => return self.resize_drag(),
+            Drag::Resize { .. } => return self.resize_drag(),
             _ => {}
         }
         self.ui.hover[Self::idx(pane)] = true;
@@ -98,14 +84,10 @@ impl App {
         self.dirty(pane);
     }
 
-    fn start_move(&mut self) {
-        let (cx, cy) = cursor();
-        self.ui.drag = Drag::Move(cx - self.origin.0, cy - self.origin.1);
-    }
-
     pub fn mouse_down(&mut self, pane: Pane, x: i32, y: i32, dbl: bool, ctrl: bool, shift: bool) {
-        if let Some(edge) = self.edge_at(pane, x, y) {
-            return self.start_resize(pane, edge);
+        let edges = self.edge_at(pane, x, y);
+        if edges != 0 {
+            return self.start_resize(pane, edges);
         }
         let (w, _) = self.sizes.size(pane);
         let in_strip = pane != Pane::Bar && y < frame::STRIP_H + 2;
@@ -117,7 +99,8 @@ impl App {
                     _ => Act::TogglePane(2),
                 });
             }
-            return self.start_move();
+            // 拖标题条：只移动这个面板（原版：子面板单独拖动即脱离）
+            return self.start_move(pane);
         }
         match pane {
             Pane::Bar => match bar::hit(x, y, self.ui.bar_hover > 0.5) {
@@ -140,7 +123,8 @@ impl App {
                     self.ui.drag = Drag::Volume;
                     self.volume_at(y);
                 }
-                _ => self.start_move(),
+                // 播放条空白处：与贴着的面板一起移动
+                _ => self.start_move(Pane::Bar),
             },
             Pane::Eq => {
                 if eq::BTN_ENABLE.contains(x, y) {
@@ -158,18 +142,18 @@ impl App {
                         return self.eq_at(i, y);
                     }
                 }
-                self.start_move();
+                self.start_move(Pane::Eq);
             }
             Pane::List => self.list_down(x, y, dbl, ctrl, shift),
-            Pane::Cover => self.start_move(),
+            Pane::Cover => self.start_move(Pane::Cover),
         }
     }
     pub fn mouse_up(&mut self, _pane: Pane, _x: i32, _y: i32) {
         if matches!(self.ui.drag, Drag::EqSlider(_)) {
             self.player.save(false);
         }
-        if matches!(self.ui.drag, Drag::Resize(..)) {
-            self.end_resize();
+        if matches!(self.ui.drag, Drag::Resize { .. } | Drag::Move { .. }) {
+            self.end_drag();
         }
         self.ui.drag = Drag::None;
     }
@@ -230,7 +214,7 @@ impl App {
             return;
         }
         if !lay.rows.contains(x, y) {
-            return self.start_move();
+            return self.start_move(Pane::List);
         }
         let l = &mut self.ui.list;
         let row = lay.row_at(y, l.scroll);

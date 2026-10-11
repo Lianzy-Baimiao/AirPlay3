@@ -54,12 +54,9 @@ pub fn toggle(h: isize) {
 }
 
 /// 记录的窗口位置是否还在某个显示器上（拔掉副屏后避免窗口跑到屏幕外）。
-/// 坐标按系统 DPI 粗略换算为物理像素后判断。
-pub fn point_on_screen(x: f32, y: f32) -> bool {
+/// 原生界面声明了 DPI 感知，保存的就是物理像素，不再换算。
+pub fn point_on_screen(x: i32, y: i32) -> bool {
     use windows::Win32::Foundation::POINT;
     use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromPoint};
-    use windows::Win32::UI::HiDpi::GetDpiForSystem;
-    let scale = unsafe { GetDpiForSystem() } as f32 / 96.0;
-    let pt = POINT { x: ((x + 40.0) * scale) as i32, y: ((y + 20.0) * scale) as i32 };
-    !unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONULL) }.is_invalid()
+    !unsafe { MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONULL) }.is_invalid()
 }

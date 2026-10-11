@@ -9,12 +9,13 @@ pub const W: i32 = 304;
 pub const H: i32 = 225;
 pub const ORANGE: Rgba = Rgba(255, 124, 44, 255);
 const FONT: Font = Font::px(12.0, false);
-pub const MIN_H: i32 = 160;
-pub const MAX_H: i32 = 700;
+/// 外框尺寸范围：原版主体 280×204 ～ 800×800，加上标题条与边（宽 +4、高 +21）
+pub const MIN: (i32, i32) = (284, 225);
+pub const MAX: (i32, i32) = (804, 821);
 
-/// 大封面：默认高度时与原版位置一致，面板变高时保持垂直居中
-fn big_cover(h: i32) -> R {
-    R::new(88, (57 + (h - H) / 2).max(30), 127, 127)
+/// 大封面：默认尺寸时与原版位置一致，面板变大时保持居中
+fn big_cover(w: i32, h: i32) -> R {
+    R::new(88 + (w - W) / 2, (57 + (h - H) / 2).max(30), 127, 127)
 }
 
 fn small_cover(h: i32) -> R {
@@ -44,15 +45,15 @@ pub fn paint(c: &mut Canvas, m: &CoverModel) {
     c.push_clip(body);
     let hint = "歌曲及歌词相关信息均来自互联网";
     let tw = crate::gui::text::measure(hint, FONT).0 as i32;
-    c.text(hint, FONT, (W - tw) / 2, body.y + 3, Rgba::gray(150), Hint::ClearType);
+    c.text(hint, FONT, (c.w - tw) / 2, body.y + 3, Rgba::gray(150), Hint::ClearType);
     if !m.active {
         let logo = &skin().logo;
-        let (x, y) = ((W - logo.w as i32) / 2, body.y + 60 + (c.h - H) / 2);
+        let (x, y) = ((c.w - logo.w as i32) / 2, body.y + 60 + (c.h - H) / 2);
         c.sprite(logo, x, y, Rgba::gray(255));
         c.pop_clip();
         return;
     }
-    let (big, small) = (big_cover(c.h), small_cover(c.h));
+    let (big, small) = (big_cover(c.w, c.h), small_cover(c.h));
     let k = m.lyric_mode.clamp(0.0, 1.0);
     let lerp = |a: i32, b: i32| a + ((b - a) as f32 * k).round() as i32;
     let cr = R::new(lerp(big.x, small.x), lerp(big.y, small.y), lerp(big.w, small.w), lerp(big.h, small.h));

@@ -73,6 +73,10 @@ pub fn after_create(start_hidden: bool) {
             Ok("search") => app.open_lyric_search(),
             _ => {}
         }
+        #[cfg(debug_assertions)]
+        if let Ok(spec) = std::env::var("AIRPLAY3_TEST_DRAG") {
+            app.test_drags(&spec);
+        }
     });
 }
 
@@ -185,12 +189,7 @@ impl App {
             return;
         }
         self.quitting = true;
-        {
-            let mut g = self.player.core.lock();
-            let (x, y) = self.origin;
-            g.settings.window.main = Some(crate::config::WinRect { x: x as f32, y: y as f32, w: 625.0, h: 431.0 });
-            g.touch_settings();
-        }
+        self.save_layout();
         self.player.snapshot_last();
         self.player.stop();
         self.player.save(true);

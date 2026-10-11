@@ -29,36 +29,34 @@ pub enum Pane {
 
 pub const PANES: [Pane; 4] = [Pane::Bar, Pane::Cover, Pane::Eq, Pane::List];
 
-/// 可调整的面板尺寸
+/// 可调整的面板尺寸（外框）
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sizes {
     pub list: (i32, i32),
-    pub cover_h: i32,
+    pub cover: (i32, i32),
 }
 
 impl Sizes {
     pub fn size(&self, p: Pane) -> (i32, i32) {
         match p {
             Pane::Bar => (bar::W, bar::H),
-            Pane::Cover => (cover::W, self.cover_h),
+            Pane::Cover => self.cover,
             Pane::Eq => (eq::W, eq::H),
             Pane::List => self.list,
         }
     }
-    /// 相对播放条窗口左上角的偏移（默认尺寸时与原版布局一致；歌词图片变高时均衡器随之下移）
-    pub fn offset(&self, p: Pane) -> (i32, i32) {
+    /// 默认位置：相对播放条左上角（默认尺寸时与原版布局一致）
+    pub fn default_offset(&self, p: Pane) -> (i32, i32) {
         match p {
             Pane::Bar => (0, 0),
             Pane::Cover => (0, 65),
-            Pane::Eq => (0, 65 + self.cover_h - 3),
+            Pane::Eq => (0, 65 + self.cover.1 - 3),
             Pane::List => (301, 0),
         }
     }
     pub fn from_settings(w: &crate::config::WindowState) -> Sizes {
-        Sizes {
-            list: (w.list_size[0].clamp(playlist::MIN.0, 2000), w.list_size[1].clamp(playlist::MIN.1, 2000)),
-            cover_h: w.cover_h.clamp(cover::MIN_H, cover::MAX_H),
-        }
+        let fit = |v: [i32; 2], (min, max): ((i32, i32), (i32, i32))| (v[0].clamp(min.0, max.0), v[1].clamp(min.1, max.1));
+        Sizes { list: fit(w.list_size, (playlist::MIN, playlist::MAX)), cover: fit([w.cover_w, w.cover_h], (cover::MIN, cover::MAX)) }
     }
 }
 
@@ -68,6 +66,8 @@ pub struct Win {
     pub surface: Surface,
     pub dirty: bool,
     pub visible: bool,
+    /// 窗口左上角（屏幕坐标）
+    pub pos: (i32, i32),
 }
 
 pub struct App {
@@ -75,8 +75,6 @@ pub struct App {
     pub now: SharedNow,
     pub cmds: Sender<Command>,
     pub wins: Vec<(Pane, Win)>,
-    /// 播放条窗口左上角（屏幕坐标）
-    pub origin: (i32, i32),
     pub ui: super::state::UiState,
     pub started: Instant,
     pub quitting: bool,
@@ -99,6 +97,50 @@ thread_local! {
 impl App {
     pub fn win(&mut self, p: Pane) -> &mut Win {
         &mut self.wins.iter_mut().find(|(q, _)| *q == p).expect("pane").1
+    }
+
+    pub fn win_ref(&self, p: Pane) -> &Win {
+        &self.wins.iter().find(|(q, _)| *q == p).expect("pane").1
+    }
+
+    /// 播放条窗口左上角（屏幕坐标）
+    pub fn bar_pos(&self) -> (i32, i32) {
+        self.wins[0].1.pos
+    }
+
+    /// 面板外框（屏幕坐标）
+    pub fn rect_of(&self, p: Pane) -> R {
+        let (x, y) = self.win_ref(p).pos;
+        let (w, h) = self.sizes.size(p);
+        R::new(x, y, w, h)
+    }
+
+    /// 只移动一个面板
+    pub fn place(&mut self, p: Pane, x: i32, y: i32) {
+        let w = self.win(p);
+        if w.pos == (x, y) {
+            return;
+        }
+        w.pos = (x, y);
+        unsafe {
+            let _ = SetWindowPos(w.hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+
+    /// 保存播放条位置、各面板相对播放条的位置与尺寸
+    pub fn save_layout(&mut self) {
+        let (bx, by) = self.bar_pos();
+        let off = [Pane::Cover, Pane::Eq, Pane::List].map(|p| {
+            let (x, y) = self.win_ref(p).pos;
+            [x - bx, y - by]
+        });
+        let mut g = self.player.core.lock();
+        let w = &mut g.settings.window;
+        w.main = Some(crate::config::WinRect { x: bx as f32, y: by as f32, w: 625.0, h: 431.0 });
+        w.list_size = [self.sizes.list.0, self.sizes.list.1];
+        (w.cover_w, w.cover_h) = self.sizes.cover;
+        w.pane_offsets = Some(off);
+        g.touch_settings();
     }
 
     pub fn pane_of(&self, hwnd: HWND) -> Option<Pane> {
@@ -127,7 +169,6 @@ impl App {
         if self.settings_win.as_ref().is_some_and(|s| s.win.dirty) {
             self.paint_settings();
         }
-        let origin = self.origin;
         for i in 0..self.wins.len() {
             let (pane, ref w) = self.wins[i];
             if !w.dirty || !w.visible {
@@ -139,12 +180,8 @@ impl App {
                 canvas = Canvas::new(cw, ch);
             }
             self.paint(pane, &mut canvas);
-            if matches!(pane, Pane::List | Pane::Cover) {
-                let (w, h) = (canvas.w, canvas.h);
-                canvas.hit_margin(R::new(0, h - 5, w, 5));
-                if pane == Pane::List {
-                    canvas.hit_margin(R::new(w - 5, 0, 5, h));
-                }
+            if super::resize::limits(pane).is_some() {
+                super::resize::grip_margins(&mut canvas);
             }
             // 仅调试构建：AIRPLAY3_DUMP=<目录> 时把各面板（含透明通道）存成 PNG，用于制作说明文档截图
             #[cfg(debug_assertions)]
@@ -156,20 +193,20 @@ impl App {
                 }
             }
             let w = &mut self.wins[i].1;
-            let (dx, dy) = self.sizes.offset(pane);
-            w.surface.present(w.hwnd, &canvas, origin.0 + dx, origin.1 + dy);
+            w.surface.present(w.hwnd, &canvas, w.pos.0, w.pos.1);
             w.canvas = canvas;
             w.dirty = false;
         }
     }
 
-    /// 移动整组窗口
+    /// 把播放条移到 (x, y)，所有面板（含已脱离的）平移同样的距离（迷你条拖动时用）
     pub fn move_to(&mut self, x: i32, y: i32) {
-        self.origin = (x, y);
-        unsafe {
-            for (p, w) in &self.wins {
-                let (dx, dy) = self.sizes.offset(*p);
-                let _ = SetWindowPos(w.hwnd, None, x + dx, y + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        let (bx, by) = self.bar_pos();
+        let (dx, dy) = (x - bx, y - by);
+        for (_, w) in &mut self.wins {
+            w.pos = (w.pos.0 + dx, w.pos.1 + dy);
+            unsafe {
+                let _ = SetWindowPos(w.hwnd, None, w.pos.0, w.pos.1, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
         }
     }
@@ -182,6 +219,13 @@ impl App {
             let _ = ShowWindow(w.hwnd, if on { SW_SHOWNOACTIVATE } else { SW_HIDE });
         }
     }
+}
+
+/// 矩形是否有一部分在某个显示器上（拔掉显示器后，留在那边的面板回到默认位置）
+fn on_screen(r: R) -> bool {
+    use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromRect};
+    let rc = RECT { left: r.x, top: r.y, right: r.right(), bottom: r.bottom() };
+    !unsafe { MonitorFromRect(&rc, MONITOR_DEFAULTTONULL) }.is_invalid()
 }
 
 /// 任意线程：请求界面刷新
@@ -200,19 +244,31 @@ pub fn run(player: Player, now: SharedNow, cmds: Sender<Command>, start_hidden: 
     }
     window::register(Some(super::wnd::wndproc));
     let (x, y) = super::state::initial_origin(&player);
-    let sizes = Sizes::from_settings(&player.core.lock().settings.window);
+    let (sizes, saved) = {
+        let g = player.core.lock();
+        (Sizes::from_settings(&g.settings.window), g.settings.window.pane_offsets)
+    };
     let mut wins = Vec::new();
     let bar_hwnd = window::create("AirPlay3", x, y, bar::W, bar::H, true, None);
     for p in PANES {
         let (w, h) = sizes.size(p);
-        let (dx, dy) = sizes.offset(p);
-        let hwnd = if p == Pane::Bar { bar_hwnd } else { window::create("AirPlay3", x + dx, y + dy, w, h, false, Some(bar_hwnd)) };
-        wins.push((p, Win { hwnd, canvas: Canvas::new(w, h), surface: Surface::new(w, h), dirty: true, visible: true }));
+        // 上次保存的位置（面板可能已脱离）；不在任何显示器上时回到默认位置
+        let saved = match p {
+            Pane::Cover => saved.map(|o| o[0]),
+            Pane::Eq => saved.map(|o| o[1]),
+            Pane::List => saved.map(|o| o[2]),
+            Pane::Bar => None,
+        };
+        let def = sizes.default_offset(p);
+        let (dx, dy) = saved.map(|o| (o[0], o[1])).filter(|&(dx, dy)| on_screen(R::new(x + dx, y + dy, w, h))).unwrap_or(def);
+        let (px, py) = (x + dx, y + dy);
+        let hwnd = if p == Pane::Bar { bar_hwnd } else { window::create("AirPlay3", px, py, w, h, false, Some(bar_hwnd)) };
+        wins.push((p, Win { hwnd, canvas: Canvas::new(w, h), surface: Surface::new(w, h), dirty: true, visible: true, pos: (px, py) }));
     }
     bar_slot.store(bar_hwnd.0 as isize, std::sync::atomic::Ordering::Release);
     let ui = super::state::UiState::new(&player);
     let (async_tx, async_rx) = crossbeam_channel::unbounded();
-    let app = App { player, now, cmds, wins, origin: (x, y), ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, async_tx, async_rx };
+    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, async_tx, async_rx };
     APP.with(|a| *a.borrow_mut() = Some(app));
     super::wnd::after_create(start_hidden);
     unsafe {
