@@ -1,0 +1,16 @@
+# 复制为 .cargo/config.toml 并按本机修改路径（x86_64-pc-windows-gnu 工具链）。
+# rustup 自带的 self-contained mingw 缺少 as.exe，windows crate 的 raw-dylib 需要完整的 dlltool，
+# 因此指向独立安装的 MinGW-w64（例如 winlibs，msvcrt 版）。
+
+[build]
+# GNU ld 按系统 ANSI 代码页读取响应文件；项目路径含中文时，把构建产物放到纯 ASCII 路径。
+target-dir = "C:/cargo-target/airplay3"
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "dlltool=C:/mingw64/bin/dlltool.exe"]
+
+[env]
+# build.rs 用其中的 windres.exe 嵌入图标、清单与版本信息
+AIRPLAY_MINGW_BIN = "C:/mingw64/bin"
+CC_x86_64_pc_windows_gnu = "C:/mingw64/bin/gcc.exe"
+AR_x86_64_pc_windows_gnu = "C:/mingw64/bin/ar.exe"

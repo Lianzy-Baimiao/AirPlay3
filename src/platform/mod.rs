@@ -1,0 +1,6 @@
+//! Windows 平台集成。
+
+pub mod com;
+pub mod hotkeys;
+pub mod shell;
+pub mod window;

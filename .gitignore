@@ -1,0 +1,8 @@
+/target
+/dist
+# 原版程序不随仓库分发
+/AirPlay3.exe
+# 本机工具链路径（参考 .cargo/config.example.toml）
+/.cargo/config.toml
+AIRPLAY_CONFIG/
+*.log
