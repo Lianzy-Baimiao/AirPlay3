@@ -133,13 +133,16 @@ pub fn paint(c: &mut Canvas, m: &BarModel) {
     }
     // 标题与标语（悬停时变暗，被控制按钮覆盖）
     let text_a = (255.0 * (0.25 + 0.75 * idle)) as u8;
-    c.push_clip(R::new(80, 6, 150, 36));
+    c.push_clip(R::new(80, 6, 150, 20));
     c.glow_text("AIRPLAY", FONT, 82, 11, Rgba::gray(235).alpha(text_a), Rgba(255, 255, 255, (55.0 * (0.25 + 0.75 * idle)) as u8), 3);
+    c.pop_clip();
+    // 标语在自己的一行里上下切换（与原版一致：标题第 15~23 行，标语第 29~40 行），滑出的标语不会压到标题上
+    c.push_clip(R::new(80, 25, 152, 19));
     let k = m.slogan.clamp(0.0, 1.0);
     let off = (k * 16.0).round() as i32;
     let (a0, a1) = (((1.0 - k) * text_a as f32) as u8, (k * text_a as f32) as u8);
-    c.glow_text(SLOGANS[0], FONT_SLOGAN, 82, 22 - off, Rgba::gray(235).alpha(a0), Rgba(255, 255, 255, (a0 as f32 * 0.22) as u8), 3);
-    c.glow_text(SLOGANS[1], FONT_SLOGAN, 82, 38 - off, Rgba::gray(235).alpha(a1), Rgba(255, 255, 255, (a1 as f32 * 0.22) as u8), 3);
+    c.glow_text(SLOGANS[0], FONT_SLOGAN, 82, 27 - off, Rgba::gray(235).alpha(a0), Rgba(255, 255, 255, (a0 as f32 * 0.22) as u8), 3);
+    c.glow_text(SLOGANS[1], FONT_SLOGAN, 82, 43 - off, Rgba::gray(235).alpha(a1), Rgba(255, 255, 255, (a1 as f32 * 0.22) as u8), 3);
     c.pop_clip();
     // 进度
     let frac = if m.dur > 0.0 { (m.pos / m.dur).clamp(0.0, 1.0) } else { 0.0 };
