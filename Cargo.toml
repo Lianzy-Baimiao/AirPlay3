@@ -1,6 +1,6 @@
 [package]
 name = "airplay3"
-version = "3.1.0"
+version = "3.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "AirPlay3 本地音乐播放器 (Rust 重写版)"
@@ -22,7 +22,7 @@ crossbeam-channel = "=0.5.17"
 quick-xml = "=0.42.0"
 pinyin = { version = "=0.11.0", default-features = false, features = ["plain", "heteronym"] }
 rfd = { version = "=0.17.2", default-features = false }
-ureq = { version = "=3.4.2", default-features = false, features = ["native-tls-no-default", "gzip", "json", "socks-proxy", "win-system-proxy"] }
+ureq = { version = "=3.4.2", default-features = false, features = ["native-tls", "gzip", "json", "socks-proxy", "win-system-proxy"] }
 log = "=0.4.34"
 anyhow = "=1.0.104"
 raw-window-handle = "=0.6.2"

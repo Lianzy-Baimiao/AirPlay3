@@ -7,12 +7,55 @@ use crate::skin::icons;
 
 pub const W: i32 = 324;
 pub const H: i32 = 431;
+pub const MIN: (i32, i32) = (260, 200);
 pub const TOOL: [R; 3] = [R::new(18, 24, 15, 15), R::new(67, 24, 15, 15), R::new(116, 24, 15, 15)];
-pub const TABS: R = R::new(3, 43, 49, 352);
-pub const ROWS: R = R::new(53, 44, 253, 349);
 pub const ROW_H: i32 = 21;
-pub const SCROLL: R = R::new(307, 44, 10, 349);
-pub const SEARCH: R = R::new(209, 404, 106, 20);
+
+/// 随窗口尺寸变化的布局（默认 324×431 时与原版一致）
+#[derive(Clone, Copy, Debug)]
+pub struct Layout {
+    pub w: i32,
+    pub h: i32,
+    pub tabs: R,
+    pub rows: R,
+    pub scroll: R,
+    pub search: R,
+    pub footer_y: i32,
+}
+
+impl Layout {
+    pub fn of((w, h): (i32, i32)) -> Layout {
+        Layout {
+            w,
+            h,
+            tabs: R::new(3, 43, 49, h - 79),
+            rows: R::new(53, 44, w - 71, h - 82),
+            scroll: R::new(w - 17, 44, 10, h - 82),
+            search: R::new(w - 115, h - 27, 106, 20),
+            footer_y: h - 36,
+        }
+    }
+
+    pub fn max_scroll(&self, n: usize) -> i32 {
+        (n as i32 * ROW_H - self.rows.h).max(0)
+    }
+
+    /// 滚动条滑块（y, 高度）；不需要滚动时高度为 0
+    pub fn thumb(&self, n: usize, scroll: i32) -> (i32, i32) {
+        let content = n as i32 * ROW_H;
+        if content <= self.rows.h {
+            return (self.scroll.y, 0);
+        }
+        let th = (self.rows.h * self.rows.h / content).max(20);
+        let max = self.max_scroll(n).max(1);
+        (self.scroll.y + 1 + scroll.clamp(0, max) * (self.scroll.h - th - 2) / max, th)
+    }
+
+    pub fn row_at(&self, y: i32, scroll: i32) -> usize {
+        ((y - self.rows.y + scroll) / ROW_H).max(0) as usize
+    }
+}
+
 pub const ORANGE: Rgba = Rgba(234, 115, 43, 255);
 const FONT: Font = Font::px(12.0, false);
 const STRIPE: Rgba = Rgba::gray(40);
@@ -38,38 +81,41 @@ pub struct PlaylistModel<'a> {
     pub search: &'a str,
     pub search_focus: bool,
     pub strip_hover: f32,
+    pub thumb_hot: bool,
 }
 
 pub fn paint(c: &mut Canvas, m: &PlaylistModel) {
+    let lay = Layout::of((c.w, c.h));
+    let (rows_r, tabs_r, search_r) = (lay.rows, lay.tabs, lay.search);
     let body = frame::panel(c, m.strip_hover);
     c.push_clip(body);
     for (i, (r, cell)) in TOOL.iter().zip([icons::T_ADD, icons::T_EDIT, icons::T_SORT]).enumerate() {
         c.icon(cell, r.x, r.y, Rgba::gray(if m.hot_tool == Some(i) { 200 } else { 93 }));
     }
     c.fill(R::new(body.x, 42, body.w, 1), Rgba::gray(93));
-    c.fill(R::new(TABS.right(), TABS.y, 1, TABS.h), Rgba::gray(93));
-    c.fill(R::new(body.x, 395, body.w, 1), Rgba::gray(93));
+    c.fill(R::new(tabs_r.right(), tabs_r.y, 1, tabs_r.h), Rgba::gray(93));
+    c.fill(R::new(body.x, lay.footer_y, body.w, 1), Rgba::gray(93));
     // 分栏
     for (i, (name, active)) in m.tabs.iter().enumerate() {
-        let y = TABS.y + 4 + i as i32 * 26;
+        let y = tabs_r.y + 4 + i as i32 * 26;
         let col = if *active { ORANGE } else { Rgba::gray(180) };
         if *active {
             // 选中分栏：左亮右暗的底色 + 下方淡出的分隔线
-            for x in TABS.x..TABS.right() {
-                let t = (x - TABS.x) as f32 / TABS.w as f32;
+            for x in tabs_r.x..tabs_r.right() {
+                let t = (x - tabs_r.x) as f32 / tabs_r.w as f32;
                 c.fill(R::new(x, y - 3, 1, 22), Rgba::gray(255).alpha((26.0 * (1.0 - t)) as u8));
             }
             c.icon(icons::HEADPHONE, 8, y + 2, col);
         }
         c.text(name, FONT, 25, y + 1, col, Hint::ClearType);
-        c.fill(R::new(TABS.x + 6, y + 24, TABS.w - 12, 1), Rgba::gray(44));
+        c.fill(R::new(tabs_r.x + 6, y + 24, tabs_r.w - 12, 1), Rgba::gray(44));
     }
     // 行
-    c.push_clip(ROWS);
+    c.push_clip(rows_r);
     for (i, row) in m.rows.iter().enumerate() {
         let idx = m.first + i;
-        let y = ROWS.y + idx as i32 * ROW_H - m.scroll;
-        let r = R::new(ROWS.x, y, ROWS.w, ROW_H);
+        let y = rows_r.y + idx as i32 * ROW_H - m.scroll;
+        let r = R::new(rows_r.x, y, rows_r.w, ROW_H);
         if row.selected {
             c.fill(r, Rgba::gray(75));
         } else if idx % 2 == 1 {
@@ -78,44 +124,40 @@ pub fn paint(c: &mut Canvas, m: &PlaylistModel) {
         let hover = m.hover_row == Some(idx);
         let col = if row.playing { ORANGE } else { Rgba::gray(224) };
         let dur_w = text::measure(row.duration, FONT).0 as i32;
-        let tx = ROWS.x + 20;
+        let tx = rows_r.x + 20;
         if hover {
-            c.icon(icons::ROW_PLAY, ROWS.x + 2, y + 3, Rgba::gray(200));
+            c.icon(icons::ROW_PLAY, rows_r.x + 2, y + 3, Rgba::gray(200));
         }
-        c.push_clip(R::new(ROWS.x, y, ROWS.w - dur_w - 8, ROW_H));
+        c.push_clip(R::new(rows_r.x, y, rows_r.w - dur_w - 8, ROW_H));
         let w = c.text(row.title, FONT, tx, y + 3, col, Hint::ClearType);
         let dot = tx + w + 8;
         c.round_rect(R::new(dot, y + 9, 4, 4), 2.0, Some(if row.playing { Rgba(150, 80, 40, 255) } else { Rgba::gray(73) }), None);
         c.text(row.artist, FONT, dot + 11, y + 3, col, Hint::ClearType);
         c.pop_clip();
         if hover {
-            c.icon(icons::CROSS, ROWS.right() - 17, y + 3, Rgba::gray(150));
+            c.icon(icons::CROSS, rows_r.right() - 17, y + 3, Rgba::gray(150));
         } else {
-            c.text(row.duration, FONT, ROWS.right() - dur_w - 1, y + 3, col, Hint::ClearType);
+            c.text(row.duration, FONT, rows_r.right() - dur_w - 1, y + 3, col, Hint::ClearType);
         }
     }
     c.pop_clip();
-    scrollbar(c, m);
-    c.text(m.footer, FONT, 8, 406, Rgba::gray(150), Hint::ClearType);
-    c.round_rect(SEARCH, 9.0, Some(Rgba::gray(26)), Some(Rgba::gray(109)));
+    scrollbar(c, m, &lay);
+    c.text(m.footer, FONT, 8, lay.footer_y + 11, Rgba::gray(150), Hint::ClearType);
+    c.round_rect(search_r, 9.0, Some(Rgba::gray(26)), Some(Rgba::gray(109)));
     if m.search.is_empty() && !m.search_focus && m.strip_hover > 0.5 {
-        c.text("按名称搜索", FONT, SEARCH.x + 12, SEARCH.y + 3, Rgba::gray(110), Hint::ClearType);
+        c.text("按名称搜索", FONT, search_r.x + 12, search_r.y + 3, Rgba::gray(110), Hint::ClearType);
     } else {
-        c.push_clip(SEARCH.shrink(2));
-        c.text(m.search, FONT, SEARCH.x + 9, SEARCH.y + 3, Rgba::gray(230), Hint::ClearType);
+        c.push_clip(search_r.shrink(2));
+        c.text(m.search, FONT, search_r.x + 9, search_r.y + 3, Rgba::gray(230), Hint::ClearType);
         c.pop_clip();
     }
-    c.icon(icons::FIND, SEARCH.right() - 18, SEARCH.y + 3, Rgba::gray(150));
+    c.icon(icons::FIND, search_r.right() - 18, search_r.y + 3, Rgba::gray(150));
     c.pop_clip();
 }
 
-fn scrollbar(c: &mut Canvas, m: &PlaylistModel) {
-    let content = m.total_rows as i32 * ROW_H;
-    if content <= ROWS.h {
-        return;
+fn scrollbar(c: &mut Canvas, m: &PlaylistModel, lay: &Layout) {
+    let (ty, th) = lay.thumb(m.total_rows, m.scroll);
+    if th > 0 {
+        c.round_rect(R::new(lay.scroll.x + 2, ty, 6, th), 3.0, Some(Rgba::gray(if m.thumb_hot { 170 } else { 132 })), None);
     }
-    let th = (ROWS.h * ROWS.h / content).max(20);
-    let max_scroll = content - ROWS.h;
-    let ty = SCROLL.y + 1 + (m.scroll * (SCROLL.h - th - 2)) / max_scroll.max(1);
-    c.round_rect(R::new(SCROLL.x + 2, ty, 6, th), 3.0, Some(Rgba::gray(132)), None);
 }

@@ -11,6 +11,9 @@ use crate::skin::icons;
 
 pub enum AsyncMsg {
     Files(Vec<std::path::PathBuf>, crate::library::ListId),
+    LyricResults(u64, Result<Vec<crate::lyrics::lrclib::Record>, String>),
+    LyricFile(crate::library::TrackId, std::path::PathBuf),
+    LyricDir(std::path::PathBuf),
 }
 
 fn cursor() -> (i32, i32) {
@@ -30,11 +33,32 @@ impl App {
             check("音乐列表", Some(icons::LIST), s.show[2], Act::TogglePane(2)),
             check("均衡器", Some(icons::EQ), s.show[1], Act::TogglePane(1)),
             Item::Sep,
+            check("迷你歌词", None, self.minibar.is_some(), Act::Minibar),
+            check("桌面歌词", None, self.player.core.lock().settings.desk_lyric.visible, Act::DeskToggle),
+            check("任务栏歌词", None, self.player.core.lock().settings.taskbar_lyric.visible, Act::TaskbarToggle),
+            Item::Sep,
             Item::Sub { label: "列表播放顺序".into(), items: order },
             Item::Sep,
             item("配置", Act::OpenConfig),
             Item::Sep,
             item("退出", Act::Quit),
+        ]
+    }
+
+    fn lyric_menu(&self) -> Vec<Item> {
+        let auto = self.player.core.lock().settings.lyrics.auto_download;
+        vec![
+            item("下载歌词…", Act::LyricSearch),
+            item("关联本地歌词…", Act::LyricFile),
+            item("取消歌词关联", Act::LyricUnlink),
+            Item::Sep,
+            item("歌词提前 0.5 秒", Act::LyricOffset(500)),
+            item("歌词延后 0.5 秒", Act::LyricOffset(-500)),
+            Item::Sep,
+            item("取消图片关联", Act::CoverUnlink),
+            Item::Sep,
+            check("启用自动下载歌词", None, auto, Act::LyricAuto),
+            item("打开歌词文件夹", Act::LyricDir),
         ]
     }
 
@@ -55,6 +79,28 @@ impl App {
         self.close_menu();
         let (x, y) = cursor();
         self.menu = Some(Menu::open(items, x + 2, y + 2, self.bar_hwnd()));
+    }
+
+    /// 每帧检查：在菜单外按下鼠标、或前台切到别的程序时关闭菜单（不依赖 WM_ACTIVATE，避免刚弹出就被关掉）
+    pub fn poll_menu(&mut self) {
+        let Some(m) = self.menu.as_ref() else { return };
+        if m.opened.elapsed() < std::time::Duration::from_millis(150) {
+            return;
+        }
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON};
+        let down = unsafe { [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON].iter().any(|k| GetAsyncKeyState(k.0 as i32) as u16 & 0x8000 != 0) };
+        let (cx, cy) = cursor();
+        let outside_click = down && !m.contains(cx, cy);
+        let fg = unsafe { GetForegroundWindow() };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(fg, Some(&mut pid)) };
+        let other_app = !fg.is_invalid() && pid != std::process::id();
+        // 自动化自测时测试程序本身占着前台，忽略这一条（仅调试构建）
+        #[cfg(debug_assertions)]
+        let other_app = other_app && std::env::var_os("AIRPLAY3_TEST_NOFG").is_none();
+        if outside_click || other_app {
+            self.close_menu();
+        }
     }
 
     pub fn close_menu(&mut self) {
@@ -131,6 +177,93 @@ impl App {
                 item("按时间长度排序", Act::Sort(SortBy::Duration)),
             ]),
             Act::AddFiles | Act::AddFolder => self.add_dialog(a == Act::AddFolder),
+            Act::LyricMenu => self.popup(self.lyric_menu()),
+            Act::LyricSearch => self.open_lyric_search(),
+            Act::LyricFile => self.pick_lyric_file(),
+            Act::LyricUnlink | Act::CoverUnlink | Act::LyricOffset(_) => {
+                if let Some(id) = self.ui.snap.current {
+                    use crate::player::nowplaying::Link;
+                    match a {
+                        Act::LyricUnlink => p.set_lyric_link(id, Link::Off, &self.now),
+                        Act::CoverUnlink => p.set_cover_link(id, Link::Off, &self.now),
+                        Act::LyricOffset(ms) => p.adjust_lyric_offset(id, ms, &self.now),
+                        _ => {}
+                    }
+                }
+            }
+            Act::LyricAuto => {
+                let mut g = p.core.lock();
+                g.settings.lyrics.auto_download = !g.settings.lyrics.auto_download;
+                g.touch_settings();
+                drop(g);
+                p.refresh_now_playing(&self.now, true);
+            }
+            Act::SetDevice(id) => {
+                let mut a = p.core.lock().settings.audio.clone();
+                a.device_id = id;
+                p.set_audio(&a);
+                p.save(false);
+                if let Some(s) = self.settings_win.as_mut() {
+                    s.win.dirty = true;
+                }
+            }
+            Act::SetProxy(k) => {
+                let mut g = p.core.lock();
+                g.settings.network.kind = k;
+                g.touch_settings();
+                drop(g);
+                p.save(false);
+                if let Some(s) = self.settings_win.as_mut() {
+                    s.win.dirty = true;
+                }
+            }
+            Act::DeskToggle | Act::DeskLock | Act::DeskTwoLines => {
+                {
+                    let mut g = p.core.lock();
+                    let d = &mut g.settings.desk_lyric;
+                    match a {
+                        Act::DeskToggle => d.visible = !d.visible,
+                        Act::DeskLock => d.locked = !d.locked,
+                        _ => d.two_lines = !d.two_lines,
+                    }
+                    g.touch_settings();
+                }
+                self.sync_desk_lyric();
+                p.save(false);
+            }
+            Act::DeskMenu => {
+                let d = p.core.lock().settings.desk_lyric.clone();
+                self.popup(vec![
+                    check("锁定桌面歌词", None, d.locked, Act::DeskLock),
+                    check("双行显示", None, d.two_lines, Act::DeskTwoLines),
+                    Item::Sep,
+                    item("关闭桌面歌词", Act::DeskToggle),
+                ]);
+            }
+            Act::TaskbarToggle | Act::TaskbarAlign(_) | Act::TaskbarFont(_) => {
+                {
+                    let mut g = p.core.lock();
+                    let t = &mut g.settings.taskbar_lyric;
+                    match a {
+                        Act::TaskbarToggle => t.visible = !t.visible,
+                        Act::TaskbarAlign(al) => {
+                            t.align = al;
+                            t.offset = if al == 2 { -20 } else { 0 };
+                        }
+                        Act::TaskbarFont(d) => t.font_size = (t.font_size + d).clamp(9.0, 24.0),
+                        _ => {}
+                    }
+                    g.touch_settings();
+                }
+                self.sync_taskbar_lyric();
+                p.save(false);
+            }
+            Act::TaskbarMenu => self.popup(self.taskbar_menu()),
+            Act::Minibar => self.toggle_minibar(),
+            Act::LyricDir => {
+                let dir = p.core.lock().dirs.lyric_dir();
+                crate::platform::shell::open(&dir.to_string_lossy());
+            }
             other => self.list_act(other),
         }
         self.dirty_all();
@@ -166,7 +299,7 @@ impl App {
                     p.core.lock().lib.remove_from_list(list, &sel.iter().copied().collect());
                 }
             }
-            Act::OpenConfig => crate::platform::shell::open(&p.core.lock().dirs.root.to_string_lossy()),
+            Act::OpenConfig => self.open_settings(),
             Act::Quit => self.quit(),
             _ => {}
         }
@@ -202,6 +335,25 @@ impl App {
             match m {
                 AsyncMsg::Files(files, list) => {
                     self.player.import(files, list, false);
+                }
+                AsyncMsg::LyricResults(seq, r) => {
+                    self.on_lyric_results(seq, r);
+                    self.paint_search();
+                }
+                AsyncMsg::LyricDir(d) => {
+                    let mut g = self.player.core.lock();
+                    g.settings.lyrics.custom_dir = Some(d.to_string_lossy().into_owned());
+                    g.touch_settings();
+                    drop(g);
+                    self.player.refresh_now_playing(&self.now, true);
+                    self.player.save(false);
+                    if let Some(s) = self.settings_win.as_mut() {
+                        s.win.dirty = true;
+                    }
+                }
+                AsyncMsg::LyricFile(id, path) => {
+                    self.player.set_lyric_link(id, crate::player::nowplaying::Link::File(path), &self.now);
+                    self.dirty(Pane::Cover);
                 }
             }
         }
@@ -249,13 +401,6 @@ impl App {
                     let _ = x;
                     self.close_menu();
                     self.act(act);
-                }
-            }
-            WM_ACTIVATE if (wp.0 & 0xFFFF) == 0 => {
-                let other = HWND(lp.0 as _);
-                let keep = other == m.hwnd || m.child.as_ref().is_some_and(|c| c.hwnd == other);
-                if !keep {
-                    self.close_menu();
                 }
             }
             WM_KEYDOWN if wp.0 == 0x1B => self.close_menu(),
@@ -318,10 +463,11 @@ impl App {
         let hk = self.player.core.lock().settings.hotkeys.clone();
         let h = self.bar_hwnd().0 as isize;
         crate::platform::hotkeys::unregister_all(h);
-        let failed = crate::platform::hotkeys::register_all(h, &hk);
+        let failed = if hk.enabled { crate::platform::hotkeys::register_all(h, &hk) } else { Vec::new() };
         if !failed.is_empty() {
             log::warn!("热键注册失败: {failed:?}");
         }
+        self.hotkey_failed = failed;
     }
 
     pub fn on_hotkey(&mut self, id: i32) {

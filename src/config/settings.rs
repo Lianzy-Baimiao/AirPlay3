@@ -361,11 +361,33 @@ pub struct WindowState {
     pub show_cover: bool,
     pub show_eq: bool,
     pub show_list: bool,
+    /// 可调整的面板尺寸（像素）：音乐列表宽高、歌词图片高度
+    pub list_size: [i32; 2],
+    pub cover_h: i32,
 }
 
 impl Default for WindowState {
     fn default() -> Self {
-        Self { main: None, maximized: false, compact: false, mini: false, mini_pos: None, sidebar_width: 190.0, show_cover: true, show_eq: true, show_list: true }
+        Self { main: None, maximized: false, compact: false, mini: false, mini_pos: None, sidebar_width: 190.0, show_cover: true, show_eq: true, show_list: true, list_size: [324, 431], cover_h: 225 }
+    }
+}
+
+/// 任务栏歌词：嵌入任务栏显示当前歌词
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TaskbarLyricSettings {
+    pub visible: bool,
+    /// 0 = 靠左（开始按钮右侧），1 = 居中，2 = 靠右（通知区域左侧）
+    pub align: u8,
+    /// 相对对齐位置的水平偏移（像素，可拖动调整）
+    pub offset: i32,
+    pub width: i32,
+    pub font_size: f32,
+}
+
+impl Default for TaskbarLyricSettings {
+    fn default() -> Self {
+        Self { visible: false, align: 2, offset: -20, width: 360, font_size: 14.0 }
     }
 }
 
@@ -379,6 +401,7 @@ pub struct Settings {
     pub list: ListSettings,
     pub lyrics: LyricSettings,
     pub desk_lyric: DeskLyricSettings,
+    pub taskbar_lyric: TaskbarLyricSettings,
     pub network: NetworkSettings,
     pub hotkeys: HotkeySettings,
     pub theme: ThemeSettings,

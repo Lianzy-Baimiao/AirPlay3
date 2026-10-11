@@ -38,6 +38,17 @@ impl App {
             Drag::Seek => return self.seek_at(x),
             Drag::Volume => return self.volume_at(y),
             Drag::EqSlider(i) => return self.eq_at(i, y),
+            Drag::Scroll(y0, s0) => {
+                let lay = playlist::Layout::of(self.list_size());
+                let n = self.ui.list.ids.len();
+                let (_, th) = lay.thumb(n, s0);
+                let track = (lay.scroll.h - th - 2).max(1);
+                let max = lay.max_scroll(n);
+                let target = s0 + ((y - y0) as i64 * max as i64 / track as i64) as i32;
+                self.ui.list.scroll = target.clamp(0, max);
+                return self.dirty(Pane::List);
+            }
+            Drag::Resize(..) => return self.resize_drag(),
             _ => {}
         }
         self.ui.hover[Self::idx(pane)] = true;
@@ -50,8 +61,15 @@ impl App {
                 }
             }
             Pane::List => {
+                let lay = playlist::Layout::of(self.sizes.list);
+                let (ty, th) = lay.thumb(self.ui.list.ids.len(), self.ui.list.scroll);
+                let thumb = lay.scroll.contains(x, y) && y >= ty && y < ty + th;
+                if thumb != self.ui.list.thumb_hot {
+                    self.ui.list.thumb_hot = thumb;
+                    self.dirty(Pane::List);
+                }
                 let l = &mut self.ui.list;
-                let row = if playlist::ROWS.contains(x, y) { Some(((y - playlist::ROWS.y + l.scroll) / playlist::ROW_H) as usize) } else { None };
+                let row = if lay.rows.contains(x, y) { Some(lay.row_at(y, l.scroll)) } else { None };
                 let row = row.filter(|r| *r < l.ids.len());
                 let tool = playlist::TOOL.iter().position(|r| r.contains(x, y));
                 if row != l.hover || tool != l.hot_tool {
@@ -86,7 +104,10 @@ impl App {
     }
 
     pub fn mouse_down(&mut self, pane: Pane, x: i32, y: i32, dbl: bool, ctrl: bool, shift: bool) {
-        let (w, _) = pane.size();
+        if let Some(edge) = self.edge_at(pane, x, y) {
+            return self.start_resize(pane, edge);
+        }
+        let (w, _) = self.sizes.size(pane);
         let in_strip = pane != Pane::Bar && y < frame::STRIP_H + 2;
         if in_strip {
             if pane != Pane::List && x >= w - 24 && self.ui.strip_hover[Self::idx(pane)] > 0.5 {
@@ -104,7 +125,7 @@ impl App {
                 Hot::PlayPause => self.player.toggle_pause(),
                 Hot::Next => self.player.next(),
                 Hot::Min => self.act(Act::Minimize),
-                Hot::Minibar => self.act(Act::TogglePane(0)),
+                Hot::Minibar => self.act(Act::Minibar),
                 Hot::Pin => self.act(Act::ToggleTopmost),
                 Hot::Close => self.quit(),
                 Hot::Lyric => self.act(Act::TogglePane(0)),
@@ -147,6 +168,9 @@ impl App {
         if matches!(self.ui.drag, Drag::EqSlider(_)) {
             self.player.save(false);
         }
+        if matches!(self.ui.drag, Drag::Resize(..)) {
+            self.end_resize();
+        }
         self.ui.drag = Drag::None;
     }
 
@@ -181,9 +205,10 @@ impl App {
         if let Some(i) = playlist::TOOL.iter().position(|r| r.contains(x, y)) {
             return self.act([Act::AddMenu, Act::EditMenu, Act::SortMenu][i].clone());
         }
-        if playlist::SEARCH.contains(x, y) {
+        let search = playlist::Layout::of(self.sizes.list).search;
+        if search.contains(x, y) {
             self.ui.list.search_focus = true;
-            if x > playlist::SEARCH.right() - 20 && !self.ui.list.search.is_empty() {
+            if x > search.right() - 20 && !self.ui.list.search.is_empty() {
                 self.ui.list.search.clear();
             }
             return self.dirty(Pane::List);
@@ -192,18 +217,30 @@ impl App {
             self.ui.list.search_focus = false;
             self.dirty(Pane::List);
         }
-        if !playlist::ROWS.contains(x, y) {
+        let lay = playlist::Layout::of(self.list_size());
+        if lay.scroll.contains(x, y) {
+            // 滚动条：按住滑块拖动；点空白处翻页
+            let (ty, th) = lay.thumb(self.ui.list.ids.len(), self.ui.list.scroll);
+            if y >= ty && y < ty + th {
+                self.ui.drag = Drag::Scroll(y, self.ui.list.scroll);
+            } else {
+                let page = lay.rows.h - playlist::ROW_H;
+                self.scroll_list(if y < ty { -page } else { page });
+            }
+            return;
+        }
+        if !lay.rows.contains(x, y) {
             return self.start_move();
         }
         let l = &mut self.ui.list;
-        let row = ((y - playlist::ROWS.y + l.scroll) / playlist::ROW_H) as usize;
+        let row = lay.row_at(y, l.scroll);
         let Some(&id) = l.ids.get(row) else { return };
-        if dbl || (x < playlist::ROWS.x + 18 && l.hover == Some(row)) {
+        if dbl || (x < lay.rows.x + 18 && l.hover == Some(row)) {
             let list = l.list;
             if let Some(list) = list {
                 self.player.play_at(crate::player::Source::List(list), id, 0.0, false);
             }
-        } else if x > playlist::ROWS.right() - 20 && l.hover == Some(row) {
+        } else if x > lay.rows.right() - 20 && l.hover == Some(row) {
             return self.act(Act::RemoveRows(vec![id]));
         } else if shift && l.anchor.is_some() {
             let a = l.anchor.unwrap_or(row);
@@ -223,9 +260,10 @@ impl App {
 
     pub fn right_click(&mut self, pane: Pane, x: i32, y: i32) {
         match pane {
-            Pane::List if playlist::ROWS.contains(x, y) => {
+            Pane::List if playlist::Layout::of(self.sizes.list).rows.contains(x, y) => {
+                let lay = playlist::Layout::of(self.sizes.list);
                 let l = &mut self.ui.list;
-                let row = ((y - playlist::ROWS.y + l.scroll) / playlist::ROW_H) as usize;
+                let row = lay.row_at(y, l.scroll);
                 if let Some(&id) = l.ids.get(row) {
                     if !l.selected.contains(&id) {
                         l.selected = [id].into_iter().collect();
@@ -236,18 +274,14 @@ impl App {
                 self.act(Act::RowMenu);
             }
             Pane::List => self.act(Act::RowMenu),
+            Pane::Cover => self.act(Act::LyricMenu),
             _ => self.act(Act::MainMenu),
         }
     }
 
     pub fn wheel(&mut self, pane: Pane, _x: i32, _y: i32, delta: i32) {
         match pane {
-            Pane::List => {
-                let max = (self.ui.list.ids.len() as i32 * playlist::ROW_H - playlist::ROWS.h).max(0);
-                let l = &mut self.ui.list;
-                l.scroll = (l.scroll - delta / 120 * playlist::ROW_H * 3).clamp(0, max);
-                self.dirty(Pane::List);
-            }
+            Pane::List => self.scroll_list(-delta * playlist::ROW_H * 3 / 120),
             _ => {
                 self.player.volume_step(if delta > 0 { 0.05 } else { -0.05 });
                 self.dirty(Pane::Bar);

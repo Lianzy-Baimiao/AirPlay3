@@ -1,14 +1,22 @@
 //! 原生界面：复刻原版 AirPlay3 的分层窗口 + GDI+ 外观（皮肤图片来自原版资源）。
 
 mod actions;
+mod desklyric;
 pub mod app;
 pub mod canvas;
-mod draw;
+pub mod draw;
 mod input;
+mod lyricwin;
 mod menu;
+mod minibar;
 mod paint;
 pub mod panels;
+mod popup;
+mod resize;
+mod settings_model;
+mod settingswin;
 mod state;
+mod taskbar;
 mod tray;
 mod wnd;
 pub mod text;

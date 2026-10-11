@@ -63,12 +63,44 @@ pub fn after_create(start_hidden: bool) {
         super::tray::add(bar);
         app.register_hotkeys();
         app.apply_topmost();
+        app.sync_desk_lyric();
+        app.sync_taskbar_lyric();
+        // 仅调试构建：自动化自测时直接打开某个窗口
+        #[cfg(debug_assertions)]
+        match std::env::var("AIRPLAY3_TEST_OPEN").as_deref() {
+            Ok("settings") => app.open_settings(),
+            Ok("minibar") => app.toggle_minibar(),
+            Ok("search") => app.open_lyric_search(),
+            _ => {}
+        }
     });
 }
 
 impl App {
     pub fn handle(&mut self, hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
         if let Some(r) = self.menu_msg(hwnd, msg, wp, lp) {
+            return Some(r);
+        }
+        if let Some(r) = self.search_msg(hwnd, msg, wp, lp) {
+            return Some(r);
+        }
+        if let Some(r) = self.settings_msg(hwnd, msg, wp, lp) {
+            return Some(r);
+        }
+        if let Some(r) = self.desk_msg(hwnd, msg, wp, lp) {
+            return Some(r);
+        }
+        if let Some(r) = self.taskbar_msg(hwnd, msg, wp, lp) {
+            return Some(r);
+        }
+        if msg == super::taskbar::taskbar_created_msg() && hwnd == self.bar_hwnd() {
+            // 资源管理器重启：重新加托盘图标、重新嵌入任务栏
+            super::tray::add(hwnd);
+            self.taskbar = None;
+            self.sync_taskbar_lyric();
+            return Some(LRESULT(0));
+        }
+        if let Some(r) = self.minibar_msg(hwnd, msg, wp, lp) {
             return Some(r);
         }
         let pane = self.pane_of(hwnd)?;
@@ -110,8 +142,22 @@ impl App {
                 self.drop_files(pane, files);
             }
             WM_HOTKEY => self.on_hotkey(wp.0 as i32),
+            WM_COPYDATA => {
+                // 第二个实例转交的文件
+                let Some(files) = crate::platform::instance::parse(lp) else { return None };
+                if !files.is_empty() {
+                    crate::controller::open_files(&self.player, files);
+                }
+                self.restore();
+                return Some(LRESULT(1));
+            }
             WM_SETCURSOR => {
-                unsafe { SetCursor(LoadCursorW(None, IDC_ARROW).ok()) };
+                let (cx, cy) = super::resize::cursor();
+                let mut pt = POINT { x: cx, y: cy };
+                unsafe {
+                    let _ = windows::Win32::Graphics::Gdi::ScreenToClient(hwnd, &mut pt);
+                    SetCursor(LoadCursorW(None, self.cursor_for(pane, pt.x, pt.y)).ok());
+                }
                 return Some(LRESULT(1));
             }
             WM_CLOSE => {
@@ -146,10 +192,19 @@ impl App {
             g.touch_settings();
         }
         self.player.snapshot_last();
+        self.player.stop();
         self.player.save(true);
-        crate::platform::hotkeys::unregister_all(self.bar_hwnd().0 as isize);
+        let bar = self.bar_hwnd();
+        crate::platform::hotkeys::unregister_all(bar.0 as isize);
+        super::tray::remove(bar);
+        self.close_menu();
+        // 注意：此时仍在窗口过程中（App 已借用），DestroyWindow 同步发送的 WM_DESTROY 会走默认处理，
+        // 所以退出消息必须在这里直接投递，否则消息循环不结束、进程留在后台继续播放。
         unsafe {
-            let _ = DestroyWindow(self.bar_hwnd());
+            for (_, w) in &self.wins {
+                let _ = ShowWindow(w.hwnd, SW_HIDE);
+            }
+            PostQuitMessage(0);
         }
     }
 }

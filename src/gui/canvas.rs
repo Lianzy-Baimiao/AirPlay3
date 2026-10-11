@@ -65,6 +65,19 @@ impl Canvas {
         self.px.fill([0; 4]);
     }
 
+    /// 让完全透明的像素也能接收鼠标（alpha=1，肉眼不可见）：用于窗口边缘的调整区域
+    pub fn hit_margin(&mut self, r: R) {
+        let r = r.inter(&R::new(0, 0, self.w, self.h));
+        for y in r.y..r.bottom() {
+            for x in r.x..r.right() {
+                let p = &mut self.px[(y * self.w + x) as usize];
+                if p[3] == 0 {
+                    *p = [0, 0, 0, 1];
+                }
+            }
+        }
+    }
+
     pub fn clip_rect(&self) -> R {
         self.clip.last().copied().unwrap_or(R::new(0, 0, self.w, self.h))
     }

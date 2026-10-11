@@ -44,6 +44,25 @@ pub enum Act {
     RecycleSelected,
     OpenConfig,
     Quit,
+    LyricMenu,
+    LyricSearch,
+    LyricFile,
+    LyricUnlink,
+    LyricOffset(i64),
+    CoverUnlink,
+    LyricAuto,
+    LyricDir,
+    SetDevice(String),
+    SetProxy(crate::config::ProxyKind),
+    DeskToggle,
+    DeskLock,
+    DeskTwoLines,
+    DeskMenu,
+    TaskbarToggle,
+    TaskbarMenu,
+    TaskbarAlign(u8),
+    TaskbarFont(f32),
+    Minibar,
 }
 
 #[derive(Clone)]
@@ -69,6 +88,7 @@ pub struct Menu {
     surface: Surface,
     pub pos: (i32, i32),
     pub child: Option<Box<Menu>>,
+    pub opened: std::time::Instant,
 }
 
 fn layout(items: &[Item]) -> (i32, Vec<(i32, i32)>) {
@@ -90,16 +110,16 @@ impl Menu {
     pub fn open(items: Vec<Item>, x: i32, y: i32, owner: HWND) -> Menu {
         let (w, rows) = layout(&items);
         let h = rows.last().map_or(6, |(y, h)| y + h + 3);
-        // 不超出屏幕
-        let (sw, sh) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
-        let (x, y) = (x.min(sw - w).max(0), y.min(sh - h).max(0));
+        // 不超出鼠标所在显示器
+        let a = super::popup::work_area_at((x, y));
+        let (x, y) = (x.min(a.right() - w).max(a.x), y.min(a.bottom() - h).max(a.y));
         let hwnd = window::create("", x, y, w, h, false, Some(owner));
         unsafe {
             let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
             SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_TOPMOST.0 as i32);
             let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         }
-        let mut m = Menu { hwnd, items, hover: None, canvas: Canvas::new(w, h), surface: Surface::new(w, h), pos: (x, y), child: None };
+        let mut m = Menu { hwnd, items, hover: None, canvas: Canvas::new(w, h), surface: Surface::new(w, h), pos: (x, y), child: None, opened: std::time::Instant::now() };
         m.present();
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOW);
@@ -151,6 +171,11 @@ impl Menu {
             }
         }
         self.surface.present(self.hwnd, &self.canvas, self.pos.0, self.pos.1);
+    }
+
+    /// 屏幕坐标是否落在本菜单或其子菜单上
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        R::new(self.pos.0, self.pos.1, self.canvas.w, self.canvas.h).contains(x, y) || self.child.as_ref().is_some_and(|c| c.contains(x, y))
     }
 
     pub fn close(&mut self) {

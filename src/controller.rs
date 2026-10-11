@@ -55,6 +55,9 @@ fn handle(p: &Player, c: Command) {
             let mut g = p.core.lock();
             g.settings.desk_lyric.visible = !g.settings.desk_lyric.visible;
             g.touch_settings();
+            drop(g);
+            // 界面线程在下一帧根据设置创建 / 关闭桌面歌词
+            p.repaint();
         }
         Command::Seek(s) => p.seek(s),
         Command::OpenFiles(files) => open_files(p, files),

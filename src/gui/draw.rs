@@ -134,6 +134,29 @@ impl Canvas {
     }
 }
 
+/// 描边遮罩：把字形覆盖率向四周扩展 r 像素（桌面歌词的黑色描边）。结果四周各扩展 r。
+pub fn outline(m: &Mask, r: i32) -> Mask {
+    let (w, h) = (m.w as i32 + 2 * r, m.h as i32 + 2 * r);
+    let src = |x: i32, y: i32| -> u8 {
+        if x < 0 || y < 0 || x >= m.w as i32 || y >= m.h as i32 { 0 } else { m.cov[(y * m.w as i32 + x) as usize][1] }
+    };
+    let mut cov = vec![[0u8; 3]; (w * h) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let mut v = 0u8;
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx * dx + dy * dy <= r * r + 1 {
+                        v = v.max(src(x - r + dx, y - r + dy));
+                    }
+                }
+            }
+            cov[(y * w + x) as usize] = [v, v, v];
+        }
+    }
+    Mask { w: w as u32, h: h as u32, cov }
+}
+
 /// 遮罩模糊（两次盒式模糊近似高斯），四周扩展 radius
 fn blur(m: &Mask, radius: i32) -> Mask {
     let r = radius.max(1);

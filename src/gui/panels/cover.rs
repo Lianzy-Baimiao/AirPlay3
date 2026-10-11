@@ -9,8 +9,17 @@ pub const W: i32 = 304;
 pub const H: i32 = 225;
 pub const ORANGE: Rgba = Rgba(255, 124, 44, 255);
 const FONT: Font = Font::px(12.0, false);
-const BIG_COVER: R = R::new(88, 57, 127, 127);
-const SMALL_COVER: R = R::new(20, 85, 62, 62);
+pub const MIN_H: i32 = 160;
+pub const MAX_H: i32 = 700;
+
+/// 大封面：默认高度时与原版位置一致，面板变高时保持垂直居中
+fn big_cover(h: i32) -> R {
+    R::new(88, (57 + (h - H) / 2).max(30), 127, 127)
+}
+
+fn small_cover(h: i32) -> R {
+    R::new(20, (85 + (h - H) / 2).max(30), 62, 62)
+}
 const LINE_H: i32 = 17;
 
 pub struct CoverModel<'a> {
@@ -38,17 +47,18 @@ pub fn paint(c: &mut Canvas, m: &CoverModel) {
     c.text(hint, FONT, (W - tw) / 2, body.y + 3, Rgba::gray(150), Hint::ClearType);
     if !m.active {
         let logo = &skin().logo;
-        let (x, y) = ((W - logo.w as i32) / 2, body.y + 60);
+        let (x, y) = ((W - logo.w as i32) / 2, body.y + 60 + (c.h - H) / 2);
         c.sprite(logo, x, y, Rgba::gray(255));
         c.pop_clip();
         return;
     }
+    let (big, small) = (big_cover(c.h), small_cover(c.h));
     let k = m.lyric_mode.clamp(0.0, 1.0);
     let lerp = |a: i32, b: i32| a + ((b - a) as f32 * k).round() as i32;
-    let cr = R::new(lerp(BIG_COVER.x, SMALL_COVER.x), lerp(BIG_COVER.y, SMALL_COVER.y), lerp(BIG_COVER.w, SMALL_COVER.w), lerp(BIG_COVER.h, SMALL_COVER.h));
+    let cr = R::new(lerp(big.x, small.x), lerp(big.y, small.y), lerp(big.w, small.w), lerp(big.h, small.h));
     draw_cover(c, m.cover, cr);
     if k > 0.0 {
-        lyric_lines(c, m, (k * 255.0) as u8);
+        lyric_lines(c, m, small, body, (k * 255.0) as u8);
     }
     if m.info > 0.0 {
         info_overlay(c, m, body, (m.info * 255.0) as u8);
@@ -74,20 +84,26 @@ fn draw_cover(c: &mut Canvas, cover: Option<(&[u8], u32, u32)>, r: R) {
     }
 }
 
-fn lyric_lines(c: &mut Canvas, m: &CoverModel, a: u8) {
-    let x = SMALL_COVER.right() + 20;
-    let base_y = SMALL_COVER.y + 3;
-    let cur = m.current.unwrap_or(0);
-    for (i, line) in m.lines.iter().enumerate().skip(cur.saturating_sub(0)).take(6) {
-        let row = (i - cur) as i32;
-        let y = base_y + row * LINE_H;
-        let col = if Some(i) == m.current { ORANGE } else { Rgba::gray(230 - (row.min(5) as u8) * 25) };
+/// 歌词：当前行固定在小封面的垂直中线（原版），之前的行在上、之后的行在下，越远越暗
+fn lyric_lines(c: &mut Canvas, m: &CoverModel, small: R, body: R, a: u8) {
+    let x = small.right() + 20;
+    let anchor = small.y + small.h / 2 - 6;
+    let cur = m.current.unwrap_or(0) as i32;
+    c.push_clip(R::new(x, body.y + 20, body.right() - x - 4, body.h - 22));
+    for (i, line) in m.lines.iter().enumerate() {
+        let d = i as i32 - cur;
+        let y = anchor + d * LINE_H;
+        if y < body.y || y > body.bottom() {
+            continue;
+        }
+        let col = if m.current == Some(i as usize) { ORANGE } else { Rgba::gray((230 - d.abs().min(6) * 22) as u8) };
         c.text(line, FONT, x, y, col.alpha(a), Hint::ClearType);
     }
+    c.pop_clip();
 }
 
 fn info_overlay(c: &mut Canvas, m: &CoverModel, body: R, a: u8) {
-    let r = R::new(body.x, 155, body.w, 62);
+    let r = R::new(body.x, c.h - 70, body.w, 62);
     c.fill(R::new(r.x, r.y, r.w, 1), Rgba::gray(59).alpha(a));
     c.fill(R::new(r.x, r.y + 1, r.w, r.h - 2), Rgba(10, 10, 10, (a as f32 * 0.85) as u8));
     c.fill(R::new(r.x, r.bottom() - 1, r.w, 1), Rgba::gray(59).alpha(a));

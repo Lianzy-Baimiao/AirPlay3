@@ -77,7 +77,7 @@ impl App {
         let ui = &self.ui;
         let l = &ui.list;
         let first = (l.scroll / playlist::ROW_H).max(0) as usize;
-        let n_vis = (playlist::ROWS.h / playlist::ROW_H + 2) as usize;
+        let n_vis = (playlist::Layout::of(self.sizes.list).rows.h / playlist::ROW_H + 2) as usize;
         let g = self.player.core.lock();
         let mut total = 0.0;
         for id in &l.ids {
@@ -119,6 +119,7 @@ impl App {
             search: &l.search,
             search_focus: l.search_focus,
             strip_hover: ui.strip_hover[3],
+            thumb_hot: l.thumb_hot,
         };
         playlist::paint(c, &m);
     }

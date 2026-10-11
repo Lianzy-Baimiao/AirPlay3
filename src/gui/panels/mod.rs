@@ -6,3 +6,5 @@ pub mod eq;
 mod eq_labels;
 pub mod frame;
 pub mod playlist;
+pub mod search;
+pub mod settings;
