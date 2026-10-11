@@ -230,7 +230,49 @@ impl App {
         self.tick_desk();
         self.tick_taskbar();
         self.tick_minibar();
+        self.tick_smtc();
         self.ui.last_frame = now;
+    }
+
+    /// 系统媒体控制：按设置创建 / 关闭，同步播放状态与歌曲信息
+    fn tick_smtc(&mut self) {
+        let want = self.player.core.lock().settings.hotkeys.media_keys;
+        if want != self.smtc.is_some() {
+            self.smtc = if want {
+                let (cmds, bar) = (self.cmds.clone(), self.bar_hwnd());
+                let on = move |b: crate::platform::smtc::Button| {
+                    use crate::controller::Command;
+                    use crate::platform::smtc::Button;
+                    let c = match b {
+                        Button::PlayPause => Command::PlayPause,
+                        Button::Play => Command::Play,
+                        Button::Pause => Command::Pause,
+                        Button::Next => Command::Next,
+                        Button::Prev => Command::Prev,
+                        Button::Stop => Command::Stop,
+                    };
+                    let _ = cmds.send(c);
+                };
+                match crate::platform::smtc::Smtc::new(bar, on) {
+                    Ok(s) => Some(s),
+                    Err(e) => {
+                        log::warn!("系统媒体控制不可用: {e}");
+                        // 不再重试：关掉设置里的开关，免得每帧都尝试
+                        self.player.core.lock().settings.hotkeys.media_keys = false;
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+        }
+        let Some(s) = self.smtc.as_mut() else { return };
+        let snap = &self.ui.snap;
+        let n = self.now.lock();
+        let cover = n.cover.as_ref().map(|c| c.raw.clone());
+        let (title, artist, album) = (n.title.clone(), n.artist.clone(), n.album.clone());
+        drop(n);
+        s.update(snap.playing, snap.current.is_none(), &title, &artist, &album, cover.as_deref().map(|v| v.as_slice()));
     }
 
     /// 封面/歌词：新歌开始时显示大封面 + 信息，约 8 秒后有歌词则切换为小封面 + 歌词
