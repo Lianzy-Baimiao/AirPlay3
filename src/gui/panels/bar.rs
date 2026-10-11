@@ -5,16 +5,42 @@ use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::Font;
 use crate::skin::icons;
 
+/// 默认宽度；原版可左右拖动调整宽度（WM_GETMINMAXINFO：284 ~ 804），高度固定
 pub const W: i32 = 304;
 pub const H: i32 = 68;
-pub const FRAME: R = R::new(2, 2, 300, 64);
+pub const MIN_W: i32 = 284;
+pub const MAX_W: i32 = 804;
 pub const COVER: R = R::new(15, 6, 56, 56);
-pub const TRACK: R = R::new(79, 53, 144, 4);
 pub const VOLUME: R = R::new(9, 9, 7, 50);
-pub const BIG: [R; 3] = [R::new(101, 13, 32, 32), R::new(136, 13, 32, 32), R::new(171, 13, 32, 32)];
-pub const WIN_BTNS: [R; 4] = [R::new(238, 4, 15, 15), R::new(252, 4, 15, 15), R::new(267, 4, 15, 15), R::new(282, 4, 15, 15)];
-pub const TOGGLES: [R; 3] = [R::new(234, 25, 16, 16), R::new(255, 25, 16, 16), R::new(275, 25, 16, 16)];
-pub const MODE_BTN: R = R::new(281, 46, 16, 16);
+
+/// 随宽度变化的位置（与原版相同：音量、封面、标题靠左；大按钮居中；窗口按钮、开关、模式、总时长靠右；进度条拉伸）
+pub struct Layout {
+    pub frame: R,
+    pub track: R,
+    pub big: [R; 3],
+    pub win_btns: [R; 4],
+    pub toggles: [R; 3],
+    pub mode: R,
+    /// 右侧时间的 x
+    pub time_x: i32,
+}
+
+impl Layout {
+    pub fn of(w: i32) -> Layout {
+        let d = w - W;
+        let c = d / 2;
+        let rx = |x: i32, y: i32, s: i32| R::new(x + d, y, s, s);
+        Layout {
+            frame: R::new(2, 2, w - 4, 64),
+            track: R::new(79, 53, 144 + d, 4),
+            big: [R::new(101 + c, 13, 32, 32), R::new(136 + c, 13, 32, 32), R::new(171 + c, 13, 32, 32)],
+            win_btns: [rx(238, 4, 15), rx(252, 4, 15), rx(267, 4, 15), rx(282, 4, 15)],
+            toggles: [rx(234, 25, 16), rx(255, 25, 16), rx(275, 25, 16)],
+            mode: rx(281, 46, 16),
+            time_x: 232 + d,
+        }
+    }
+}
 
 pub const FONT: Font = Font::px(12.0, false);
 pub const FONT_SLOGAN: Font = Font::px(12.0, false);
@@ -61,31 +87,34 @@ pub struct BarModel<'a> {
 
 pub const SLOGANS: [&str; 2] = ["乐声飞扬 聆听彼此", "link between souls"];
 
-pub fn hit(x: i32, y: i32, hovering: bool) -> Hot {
+pub fn hit(w: i32, x: i32, y: i32, hovering: bool) -> Hot {
     if !hovering {
         return if COVER.contains(x, y) { Hot::Cover } else { Hot::None };
     }
+    let l = Layout::of(w);
+    let t = l.track;
     let checks = [
         (VOLUME.shrink(-3), Hot::Volume),
-        (BIG[0], Hot::Prev),
-        (BIG[1], Hot::PlayPause),
-        (BIG[2], Hot::Next),
-        (WIN_BTNS[0], Hot::Min),
-        (WIN_BTNS[1], Hot::Minibar),
-        (WIN_BTNS[2], Hot::Pin),
-        (WIN_BTNS[3], Hot::Close),
-        (TOGGLES[0], Hot::Lyric),
-        (TOGGLES[1], Hot::List),
-        (TOGGLES[2], Hot::Eq),
-        (MODE_BTN, Hot::Mode),
-        (R::new(TRACK.x - 4, TRACK.y - 5, TRACK.w + 8, TRACK.h + 10), Hot::Track),
+        (l.big[0], Hot::Prev),
+        (l.big[1], Hot::PlayPause),
+        (l.big[2], Hot::Next),
+        (l.win_btns[0], Hot::Min),
+        (l.win_btns[1], Hot::Minibar),
+        (l.win_btns[2], Hot::Pin),
+        (l.win_btns[3], Hot::Close),
+        (l.toggles[0], Hot::Lyric),
+        (l.toggles[1], Hot::List),
+        (l.toggles[2], Hot::Eq),
+        (l.mode, Hot::Mode),
+        (R::new(t.x - 4, t.y - 5, t.w + 8, t.h + 10), Hot::Track),
     ];
     checks.iter().find(|(r, _)| r.contains(x, y)).map_or(Hot::None, |c| c.1)
 }
 
 /// 背景：空闲为自上而下的暗色渐变；悬停时叠加中间亮、两侧暗的灰色渐变
-fn background(c: &mut Canvas, hover: f32) {
-    let f = FRAME.shrink(1);
+fn background(c: &mut Canvas, frame: R, hover: f32) {
+    let f = frame.shrink(1);
+    let (cx, half) = (f.x as f32 + f.w as f32 / 2.0 - 0.5, (f.w as f32 / 2.0 - 0.5).max(1.0));
     c.push_clip(f);
     c.vgrad(f, Rgba::gray(0), Rgba::gray(21));
     if hover > 0.0 {
@@ -94,14 +123,14 @@ fn background(c: &mut Canvas, hover: f32) {
             let t = (y - f.y) as f32 / (f.h - 1) as f32;
             let (edge, mid) = (2.0 + 55.0 * t, 66.0 + 80.0 * t);
             for x in f.x..f.right() {
-                let d = ((x as f32 - 151.0).abs() / 149.0).min(1.0);
+                let d = ((x as f32 - cx).abs() / half).min(1.0);
                 let v = (mid + (edge - mid) * d) as u8;
                 c.blend(x, y, Rgba(v, v, v, a), 1.0);
             }
         }
     }
     c.pop_clip();
-    c.round_rect(FRAME, 4.0, None, Some(Rgba::gray(85)));
+    c.round_rect(frame, 4.0, None, Some(Rgba::gray(85)));
 }
 
 fn knob(c: &mut Canvas, cx: i32, cy: i32, bright: f32) {
@@ -123,7 +152,8 @@ pub fn fmt_time(t: f64) -> String {
 
 pub fn paint(c: &mut Canvas, m: &BarModel) {
     c.clear();
-    background(c, m.hover);
+    let lay = Layout::of(c.w);
+    background(c, lay.frame, m.hover);
     let idle = 1.0 - m.hover;
     // 封面（空闲时半透明，悬停时更暗）
     let cover_alpha = 0.45 * idle + 0.18 * m.hover;
@@ -146,25 +176,27 @@ pub fn paint(c: &mut Canvas, m: &BarModel) {
     c.pop_clip();
     // 进度
     let frac = if m.dur > 0.0 { (m.pos / m.dur).clamp(0.0, 1.0) } else { 0.0 };
-    c.fill(TRACK, Rgba::gray(69).mix(Rgba::gray(192), m.hover));
-    let kx = TRACK.x + 4 + ((TRACK.w - 8) as f64 * frac) as i32;
-    knob(c, kx, TRACK.y + 2, 1.0);
+    let track = lay.track;
+    c.fill(track, Rgba::gray(69).mix(Rgba::gray(192), m.hover));
+    let kx = track.x + 4 + ((track.w - 8) as f64 * frac) as i32;
+    knob(c, kx, track.y + 2, 1.0);
     // 时间：空闲时在进度条右侧显示已播放时间；悬停时左侧已播放、右侧总时长
     let tc = Rgba::gray(117).mix(Rgba::gray(230), m.hover);
     if m.hover < 1.0 {
-        c.num6x8(&fmt_time(m.pos), 232, 51, Rgba::gray(117).alpha((idle * 255.0) as u8));
+        c.num6x8(&fmt_time(m.pos), lay.time_x, 51, Rgba::gray(117).alpha((idle * 255.0) as u8));
     }
     if m.hover > 0.0 {
         let a = (m.hover * 255.0) as u8;
         let el = fmt_time(m.pos);
         let w = el.chars().count() as i32 * 7;
         c.num6x8(&el, 73 - w, 51, tc.alpha(a));
-        c.num6x8(&fmt_time(m.dur), 232, 51, tc.alpha(a));
-        controls(c, m, a);
+        c.num6x8(&fmt_time(m.dur), lay.time_x, 51, tc.alpha(a));
+        controls(c, m, &lay, a);
     }
 }
 
-fn controls(c: &mut Canvas, m: &BarModel, a: u8) {
+fn controls(c: &mut Canvas, m: &BarModel, l: &Layout, a: u8) {
+    let (big, win_btns, toggles) = (&l.big, &l.win_btns, &l.toggles);
     let hot = |h: Hot| if m.hot == h { Rgba::gray(255).alpha(a) } else { Rgba::gray(222).alpha(a) };
     // 音量条
     c.round_rect(VOLUME, 3.0, Some(Rgba::gray(40).alpha(a)), None);
@@ -175,19 +207,19 @@ fn controls(c: &mut Canvas, m: &BarModel, a: u8) {
     c.pop_clip();
     c.num6x8(&format!("{}", (v * 100.0).round() as i32), 20, 30, Rgba::gray(230).alpha(a));
     // 大号控制按钮
-    c.icon(icons::BIG_PREV, BIG[0].x, BIG[0].y, hot(Hot::Prev));
-    c.icon(if m.playing { icons::BIG_PAUSE } else { icons::BIG_PLAY }, BIG[1].x, BIG[1].y, hot(Hot::PlayPause));
-    c.icon(icons::BIG_NEXT, BIG[2].x, BIG[2].y, hot(Hot::Next));
+    c.icon(icons::BIG_PREV, big[0].x, big[0].y, hot(Hot::Prev));
+    c.icon(if m.playing { icons::BIG_PAUSE } else { icons::BIG_PLAY }, big[1].x, big[1].y, hot(Hot::PlayPause));
+    c.icon(icons::BIG_NEXT, big[2].x, big[2].y, hot(Hot::Next));
     // 窗口按钮
     let pin = if m.topmost { icons::W_PINNED } else { icons::W_PIN };
     for (i, (cell, h)) in [(icons::W_MIN, Hot::Min), (icons::W_MINIBAR, Hot::Minibar), (pin, Hot::Pin), (icons::W_CLOSE, Hot::Close)].iter().enumerate() {
-        c.icon(*cell, WIN_BTNS[i].x, WIN_BTNS[i].y, hot(*h));
+        c.icon(*cell, win_btns[i].x, win_btns[i].y, hot(*h));
     }
     // 歌词图片 / 音乐列表 / 均衡器 开关
     let on = |b: bool, h: Hot| if b { hot(h) } else { Rgba::gray(110).alpha(a) };
-    c.icon(icons::LYRIC_PIC, TOGGLES[0].x, TOGGLES[0].y, on(m.show_lyric, Hot::Lyric));
-    c.icon(icons::LIST, TOGGLES[1].x, TOGGLES[1].y, on(m.show_list, Hot::List));
-    c.icon(icons::EQ, TOGGLES[2].x, TOGGLES[2].y, on(m.show_eq, Hot::Eq));
+    c.icon(icons::LYRIC_PIC, toggles[0].x, toggles[0].y, on(m.show_lyric, Hot::Lyric));
+    c.icon(icons::LIST, toggles[1].x, toggles[1].y, on(m.show_list, Hot::List));
+    c.icon(icons::EQ, toggles[2].x, toggles[2].y, on(m.show_eq, Hot::Eq));
     use crate::config::PlayMode::*;
     let mode = match m.mode {
         Sequential => icons::MODE_SEQ,
@@ -195,5 +227,5 @@ fn controls(c: &mut Canvas, m: &BarModel, a: u8) {
         RepeatAll => icons::MODE_REPEAT,
         RepeatOne => icons::MODE_ONE,
     };
-    c.icon(mode, MODE_BTN.x, MODE_BTN.y, hot(Hot::Mode));
+    c.icon(mode, l.mode.x, l.mode.y, hot(Hot::Mode));
 }

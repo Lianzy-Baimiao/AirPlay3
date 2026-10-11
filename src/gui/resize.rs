@@ -9,7 +9,7 @@ use windows::core::w;
 
 use super::app::{App, Pane};
 use super::canvas::{Canvas, R};
-use super::panels::{cover, frame, playlist};
+use super::panels::{bar, cover, frame, playlist};
 use super::snap::{self, BOTTOM, BOTTOM_LEFT, BOTTOM_RIGHT, LEFT, RIGHT};
 use super::state::Drag;
 
@@ -25,13 +25,19 @@ pub fn limits(p: Pane) -> Option<((i32, i32), (i32, i32))> {
     match p {
         Pane::List => Some((playlist::MIN, playlist::MAX)),
         Pane::Cover => Some((cover::MIN, cover::MAX)),
+        Pane::Bar => Some(((bar::MIN_W, bar::H), (bar::MAX_W, bar::H))),
         _ => None,
     }
 }
 
 /// 在可调整面板的左右下边缘留出可点击的像素（分层窗口里完全透明的像素收不到鼠标）
-pub fn grip_margins(c: &mut Canvas) {
+pub fn grip_margins(c: &mut Canvas, pane: Pane) {
     let (w, h) = (c.w, c.h);
+    if pane == Pane::Bar {
+        c.hit_margin(R::new(0, 0, EDGE, h));
+        c.hit_margin(R::new(w - EDGE, 0, EDGE, h));
+        return;
+    }
     let top = frame::STRIP_H + 1;
     c.hit_margin(R::new(0, h - EDGE, w, EDGE));
     c.hit_margin(R::new(0, top, EDGE, h - top));
@@ -82,6 +88,10 @@ impl App {
             return 0;
         }
         let (w, h) = self.sizes.size(pane);
+        if pane == Pane::Bar {
+            // 原版播放条只能左右调整（整个高度都可以拖）
+            return if (0..h).contains(&y) && (0..EDGE).contains(&x) { LEFT } else if (0..h).contains(&y) && (w - EDGE..w).contains(&x) { RIGHT } else { 0 };
+        }
         edge_hit(w, h, x, y)
     }
 
@@ -193,6 +203,7 @@ impl App {
                 self.ui.list.scroll = self.ui.list.scroll.min(max);
             }
             Pane::Cover => self.sizes.cover = (r.w, r.h),
+            Pane::Bar => self.sizes.bar_w = r.w,
             _ => {}
         }
         self.place(pane, r.x, r.y);

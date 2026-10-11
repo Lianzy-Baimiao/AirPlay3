@@ -34,12 +34,14 @@ pub const PANES: [Pane; 4] = [Pane::Bar, Pane::Cover, Pane::Eq, Pane::List];
 pub struct Sizes {
     pub list: (i32, i32),
     pub cover: (i32, i32),
+    /// 播放条宽度（原版可调，高度固定）
+    pub bar_w: i32,
 }
 
 impl Sizes {
     pub fn size(&self, p: Pane) -> (i32, i32) {
         match p {
-            Pane::Bar => (bar::W, bar::H),
+            Pane::Bar => (self.bar_w, bar::H),
             Pane::Cover => self.cover,
             Pane::Eq => (eq::W, eq::H),
             Pane::List => self.list,
@@ -51,12 +53,12 @@ impl Sizes {
             Pane::Bar => (0, 0),
             Pane::Cover => (0, 65),
             Pane::Eq => (0, 65 + self.cover.1 - 3),
-            Pane::List => (301, 0),
+            Pane::List => (self.bar_w - 3, 0),
         }
     }
     pub fn from_settings(w: &crate::config::WindowState) -> Sizes {
         let fit = |v: [i32; 2], (min, max): ((i32, i32), (i32, i32))| (v[0].clamp(min.0, max.0), v[1].clamp(min.1, max.1));
-        Sizes { list: fit(w.list_size, (playlist::MIN, playlist::MAX)), cover: fit([w.cover_w, w.cover_h], (cover::MIN, cover::MAX)) }
+        Sizes { list: fit(w.list_size, (playlist::MIN, playlist::MAX)), cover: fit([w.cover_w, w.cover_h], (cover::MIN, cover::MAX)), bar_w: w.bar_w.clamp(bar::MIN_W, bar::MAX_W) }
     }
 }
 
@@ -141,6 +143,7 @@ impl App {
         w.main = Some(crate::config::WinRect { x: bx as f32, y: by as f32, w: 625.0, h: 431.0 });
         w.list_size = [self.sizes.list.0, self.sizes.list.1];
         (w.cover_w, w.cover_h) = self.sizes.cover;
+        w.bar_w = self.sizes.bar_w;
         w.pane_offsets = Some(off);
         g.touch_settings();
     }
@@ -183,7 +186,7 @@ impl App {
             }
             self.paint(pane, &mut canvas);
             if super::resize::limits(pane).is_some() {
-                super::resize::grip_margins(&mut canvas);
+                super::resize::grip_margins(&mut canvas, pane);
             }
             // 仅调试构建：AIRPLAY3_DUMP=<目录> 时把各面板（含透明通道）存成 PNG，用于制作说明文档截图
             #[cfg(debug_assertions)]
@@ -251,7 +254,7 @@ pub fn run(player: Player, now: SharedNow, cmds: Sender<Command>, start_hidden: 
         (Sizes::from_settings(&g.settings.window), g.settings.window.pane_offsets)
     };
     let mut wins = Vec::new();
-    let bar_hwnd = window::create("AirPlay3", x, y, bar::W, bar::H, true, None);
+    let bar_hwnd = window::create("AirPlay3", x, y, sizes.bar_w, bar::H, true, None);
     for p in PANES {
         let (w, h) = sizes.size(p);
         // 上次保存的位置（面板可能已脱离）；不在任何显示器上时回到默认位置

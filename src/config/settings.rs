@@ -367,6 +367,8 @@ pub struct WindowState {
     pub list_size: [i32; 2],
     pub cover_h: i32,
     pub cover_w: i32,
+    /// 播放条宽度（原版可在 284 ~ 804 之间调整）
+    pub bar_w: i32,
     /// 歌词图片、均衡器、音乐列表相对播放条左上角的位置（面板可以拖开）；没有时用默认布局
     pub pane_offsets: Option<[[i32; 2]; 3]>,
 }
@@ -386,6 +388,7 @@ impl Default for WindowState {
             list_size: [324, 431],
             cover_h: 225,
             cover_w: 304,
+            bar_w: 304,
             pane_offsets: None,
         }
     }
