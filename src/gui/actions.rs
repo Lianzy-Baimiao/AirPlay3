@@ -29,14 +29,19 @@ impl App {
     fn main_menu(&self) -> Vec<Item> {
         let s = &self.ui.snap;
         let order = PlayMode::ALL.iter().map(|m| check(m.label(), None, s.mode == *m, Act::SetMode(*m))).collect();
+        // 先取出设置再拼菜单：同一个表达式里两次 core.lock() 时第一个锁要到表达式结束才释放，第二次加锁会自己等自己（死锁）
+        let (desk, taskbar) = {
+            let g = self.player.core.lock();
+            (g.settings.desk_lyric.visible, g.settings.taskbar_lyric.visible)
+        };
         vec![
             check("歌词图片", Some(icons::LYRIC_PIC), s.show[0], Act::TogglePane(0)),
             check("音乐列表", Some(icons::LIST), s.show[2], Act::TogglePane(2)),
             check("均衡器", Some(icons::EQ), s.show[1], Act::TogglePane(1)),
             Item::Sep,
             check("迷你歌词", None, self.minibar.is_some(), Act::Minibar),
-            check("桌面歌词", None, self.player.core.lock().settings.desk_lyric.visible, Act::DeskToggle),
-            check("任务栏歌词", None, self.player.core.lock().settings.taskbar_lyric.visible, Act::TaskbarToggle),
+            check("桌面歌词", None, desk, Act::DeskToggle),
+            check("任务栏歌词", None, taskbar, Act::TaskbarToggle),
             Item::Sep,
             Item::Sub { label: "列表播放顺序".into(), items: order },
             Item::Sep,
