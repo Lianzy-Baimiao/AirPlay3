@@ -159,6 +159,98 @@ fn tta_tags() {
     assert!((t.duration - 9.5).abs() < 0.01 && t.sample_rate == 44_100 && t.channels == 2 && t.bitrate > 100);
 }
 
+/// 解码（最多约 100 万个样本），中间跳转两次；返回解出的帧数，打不开时是错误信息
+fn decode_some(p: &Path) -> Result<u64, String> {
+    let mut dec = open_decoder(p).ok_or("不认识")?.map_err(|e| e.to_string())?;
+    let ch = dec.spec().channels.max(1) as u64;
+    let mut b = Block::default();
+    let mut total = 0u64;
+    for round in 0..3u64 {
+        let mut got = 0u64;
+        while got * ch < 1_000_000 {
+            let n = dec.decode(&mut b).map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            got += n as u64;
+        }
+        total += got;
+        dec.seek(dec.total_frames().unwrap_or(0) / (round + 2)).map_err(|e| e.to_string())?;
+    }
+    Ok(total)
+}
+
+/// 损坏的文件（改随机字节、一段填满、截断、改文件头附近）：解码不能 panic 或卡住。
+/// 用 debug 跑（`cargo test --test codec_fate corrupt -- --ignored`）能顺便查出整数溢出
+#[test]
+#[ignore]
+fn corrupt() {
+    let Some(root) = root() else { return };
+    let exts = std::env::var("AP3_CORRUPT_EXT").unwrap_or_else(|_| "tta,wv".into());
+    let dir = std::env::temp_dir().join("ap3_corrupt");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+    let mut rnd = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let mut files: Vec<PathBuf> = std::fs::read_dir(root.join("fate"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| exts.split(',').any(|x| p.extension().is_some_and(|e| e == x)))
+        .collect();
+    files.sort();
+    for p in &files {
+        let data = std::fs::read(p).unwrap();
+        let ext = p.extension().unwrap().to_string_lossy().into_owned();
+        for k in 0..8u64 {
+            let mut d = data.clone();
+            let at = |r: u64, len: usize| (r % len.max(1) as u64) as usize;
+            match k % 4 {
+                0 => {
+                    for _ in 0..1 + rnd() % 64 {
+                        let i = at(rnd(), d.len());
+                        d[i] = rnd() as u8;
+                    }
+                }
+                1 => {
+                    let i = at(rnd(), d.len());
+                    let n = (rnd() % 4096) as usize;
+                    let v = rnd() as u8;
+                    let end = (i + n).min(d.len());
+                    d[i..end].fill(v);
+                }
+                2 => d.truncate(at(rnd(), d.len())),
+                _ => {
+                    for _ in 0..4 {
+                        let i = at(rnd(), d.len().min(256));
+                        d[i] ^= 1 << (rnd() % 8);
+                    }
+                }
+            }
+            let f = dir.join(format!("c{k}.{ext}"));
+            std::fs::write(&f, &d).unwrap();
+            if std::env::var("AP3_CORRUPT_KEEP").is_ok_and(|v| p.ends_with(&v)) {
+                std::fs::copy(&f, dir.with_file_name(format!("keep_c{k}.{ext}"))).unwrap();
+            }
+            let t = std::time::Instant::now();
+            let r = decode_some(&f);
+            println!("{} #{k}: {r:?} {:.2}s", p.file_name().unwrap().to_string_lossy(), t.elapsed().as_secs_f64());
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// WavPack：8 ~ 32 位整数、32 位浮点、有损（混合模式）、多声道、假立体声、截断的文件
+#[test]
+#[ignore]
+fn wavpack() {
+    run(&[".wv"], 0.0);
+}
+
 #[test]
 #[ignore]
 fn tta() {

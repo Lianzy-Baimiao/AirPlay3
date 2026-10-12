@@ -154,22 +154,10 @@ pub struct TtaDecoder {
     buf: Vec<u8>,
 }
 
-/// 跳过开头的 ID3v2 标签，返回 TTA 文件头的位置
-fn skip_id3v2(f: &mut File) -> Result<u64> {
-    let mut h = [0u8; 10];
-    f.seek(SeekFrom::Start(0))?;
-    if f.read_exact(&mut h).is_err() || &h[..3] != b"ID3" {
-        return Ok(0);
-    }
-    let size = h[6..10].iter().fold(0u64, |a, &b| (a << 7) | (b & 0x7F) as u64);
-    // 有页脚时多 10 字节
-    Ok(10 + size + if h[5] & 0x10 != 0 { 10 } else { 0 })
-}
-
 impl TtaDecoder {
     pub fn open(path: &Path) -> Result<Self> {
         let mut file = File::open(path)?;
-        let start = skip_id3v2(&mut file)?;
+        let start = super::skip_id3v2(&mut file)?;
         file.seek(SeekFrom::Start(start))?;
         let mut h = [0u8; 22];
         file.read_exact(&mut h).map_err(|_| anyhow!("不是 TTA 文件"))?;

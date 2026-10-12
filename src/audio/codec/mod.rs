@@ -10,6 +10,7 @@ use super::source::{Source, Spec};
 
 pub mod bits;
 pub mod tta;
+pub mod wavpack;
 
 /// 解出的一块（交错排列）。整数样本按容器位数（8 / 16 / 24 / 32）存为有符号数；
 /// `float` 不为空时是浮点样本（-1 ~ 1），忽略 `int`
@@ -39,11 +40,27 @@ pub trait BlockDecoder: Send {
 
 /// 用自带解码器打开（按扩展名）；不是这些格式时返回 None
 pub fn open_decoder(path: &Path) -> Option<Result<Box<dyn BlockDecoder>>> {
-    let boxed = |r: Result<_>| r.map(|d| Box::new(d) as Box<dyn BlockDecoder>);
+    fn boxed<D: BlockDecoder + 'static>(r: Result<D>) -> Result<Box<dyn BlockDecoder>> {
+        r.map(|d| Box::new(d) as Box<dyn BlockDecoder>)
+    }
     match crate::util::ext_lower(path).as_str() {
         "tta" => Some(boxed(tta::TtaDecoder::open(path))),
+        "wv" => Some(boxed(wavpack::WvDecoder::open(path))),
         _ => None,
     }
+}
+
+/// 跳过开头的 ID3v2 标签，返回其后的位置（没有标签时为 0）
+pub(crate) fn skip_id3v2(f: &mut std::fs::File) -> Result<u64> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut h = [0u8; 10];
+    f.seek(SeekFrom::Start(0))?;
+    if f.read_exact(&mut h).is_err() || &h[..3] != b"ID3" {
+        return Ok(0);
+    }
+    let size = h[6..10].iter().fold(0u64, |a, &b| (a << 7) | (b & 0x7F) as u64);
+    // 有页脚时多 10 字节
+    Ok(10 + size + if h[5] & 0x10 != 0 { 10 } else { 0 })
 }
 
 /// 同上，包装成播放用的 `Source`

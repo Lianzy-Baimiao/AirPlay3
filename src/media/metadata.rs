@@ -60,10 +60,21 @@ fn pick(tags: &[&Tag], get: impl Fn(&Tag) -> Option<String>) -> String {
 
 pub fn read_tags(path: &Path) -> Option<TagInfo> {
     if !via_carrier(path) {
-        return read_lofty(path);
+        let mut t = read_lofty(path)?;
+        // lofty 有时读不全属性（如多声道 WavPack 的声道数是 0）：有自带解码器的格式由它补上
+        if t.channels == 0 || t.sample_rate == 0 || t.duration <= 0.0 {
+            fill_from_decoder(path, &mut t);
+        }
+        return Some(t);
     }
     // 没有标签也要有时长、采样率等
     let mut t = read_lofty(path).unwrap_or_default();
+    fill_from_decoder(path, &mut t)?;
+    Some(t)
+}
+
+/// 用自带解码器给出采样率、声道数、时长、码率；不是自带解码器的格式时返回 None
+fn fill_from_decoder(path: &Path, t: &mut TagInfo) -> Option<()> {
     let dec = crate::audio::codec::open_decoder(path)?.ok()?;
     let s = dec.spec();
     t.sample_rate = s.rate;
@@ -73,7 +84,7 @@ pub fn read_tags(path: &Path) -> Option<TagInfo> {
         let bytes = std::fs::metadata(path).map_or(0, |m| m.len());
         t.bitrate = (bytes as f64 * 8.0 / t.duration / 1000.0).round() as u32;
     }
-    Some(t)
+    Some(())
 }
 
 fn read_lofty(path: &Path) -> Option<TagInfo> {
