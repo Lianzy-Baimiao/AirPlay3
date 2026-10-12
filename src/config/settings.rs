@@ -455,6 +455,17 @@ impl Default for TaskbarLyricSettings {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct RadioSettings {
+    /// 收藏的电台
+    pub favorites: Vec<crate::radio::Station>,
+    /// 「推荐」的国家 / 地区代码（空 = 按系统地区）
+    pub country: String,
+    /// 上次听的电台
+    pub last: Option<crate::radio::Station>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     pub general: General,
     pub playback: Playback,
@@ -468,6 +479,7 @@ pub struct Settings {
     pub hotkeys: HotkeySettings,
     pub theme: ThemeSettings,
     pub window: WindowState,
+    pub radio: RadioSettings,
 }
 
 #[cfg(test)]

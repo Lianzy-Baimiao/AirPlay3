@@ -20,6 +20,8 @@ pub enum AsyncMsg {
     /// 手动下载专辑图片的结果：Ok(是否找到)
     CoverDone(Result<crate::player::nowplaying::CoverFound, String>),
     LyricDir(std::path::PathBuf),
+    /// 电台列表（请求序号, 结果）
+    Radio(u64, Result<Vec<crate::radio::Station>, String>),
 }
 
 fn cursor() -> (i32, i32) {
@@ -56,6 +58,7 @@ impl App {
             Item::Sep,
             Item::Sub { label: "列表播放顺序".into(), items: order },
             Item::Sep,
+            item("网络电台…", Act::Radio),
             item("配置", Act::OpenConfig),
             item("恢复默认位置", Act::ResetPosition),
             Item::Sep,
@@ -342,6 +345,8 @@ impl App {
                 }
             }
             Act::OpenConfig => self.open_settings(),
+            Act::Radio => self.open_radio(),
+            Act::SetRadioRegion(c) => self.set_radio_region(c),
             Act::ResetPosition => self.reset_layout(),
             Act::Quit => self.quit(),
             _ => {}
@@ -379,6 +384,7 @@ impl App {
                 AsyncMsg::Files(files, list) => {
                     self.player.import(files, list, false);
                 }
+                AsyncMsg::Radio(seq, r) => self.on_radio_list(seq, r),
                 AsyncMsg::LyricResults(seq, r) => {
                     self.on_lyric_results(seq, r);
                     self.paint_search();

@@ -10,7 +10,8 @@ pub mod presets;
 mod render;
 mod ring;
 pub mod source;
-mod source_mf;
+pub mod stream;
+pub(crate) mod source_mf;
 
 pub use devices::{DeviceInfo, list_devices};
 pub use engine::{Engine, Event, NextProvider, PlayRequest, PlayState};

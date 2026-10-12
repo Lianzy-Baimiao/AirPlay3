@@ -26,6 +26,13 @@ impl Player {
             }
             Event::Failed(token, err) => {
                 let mut g = self.core.lock();
+                if let Some(r) = g.radio.as_ref().filter(|r| r.token == token) {
+                    let name = r.station.name.clone();
+                    drop(g);
+                    self.notify(Notice::Error(format!("无法播放电台「{name}」: {err}")));
+                    self.repaint();
+                    return;
+                }
                 let id = g.queue.track_of(token);
                 let title = id.and_then(|id| g.lib.track_mut(id)).map(|t| {
                     t.broken = true;

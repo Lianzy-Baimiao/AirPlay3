@@ -43,6 +43,9 @@ pub enum Act {
     RevealSelected,
     RecycleSelected,
     OpenConfig,
+    /// 打开「网络电台」窗口
+    Radio,
+    SetRadioRegion(String),
     /// 主界面 / 迷你条回到默认位置（拖到看不见的地方时用）
     ResetPosition,
     Quit,

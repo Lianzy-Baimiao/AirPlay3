@@ -216,7 +216,7 @@ impl App {
         s.win.present();
     }
 }
-fn clipboard_text() -> Option<String> {
+pub(super) fn clipboard_text() -> Option<String> {
     use windows::Win32::System::DataExchange::*;
     use windows::Win32::System::Memory::*;
     unsafe {

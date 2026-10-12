@@ -6,6 +6,7 @@
 mod control;
 pub mod nowplaying;
 pub mod queue;
+mod radio;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -28,6 +29,8 @@ pub struct Core {
     pub dirs: DataDirs,
     /// 请求界面切换到该列表（命令行/第二个实例打开文件时）
     pub reveal: Option<ListId>,
+    /// 正在听的网络电台（听本地歌曲时为 None）
+    pub radio: Option<radio::Radio>,
     saved_lib_rev: u64,
     saved_settings_rev: u64,
 }
@@ -74,6 +77,7 @@ impl Player {
             queue: Queue::default(),
             dirs,
             reveal: None,
+            radio: None,
             saved_lib_rev,
             saved_settings_rev: 0,
         }));
@@ -109,6 +113,10 @@ impl Player {
 
     /// 当前曲目：正在听到的，否则是队列记录的最后一首。
     pub fn current(&self, core: &Core) -> Option<TrackId> {
+        // 听电台时没有「当前曲目」
+        if core.radio.is_some() {
+            return None;
+        }
         let (token, _, _) = self.engine.position();
         core.queue.track_of(token).or(core.queue.current)
     }

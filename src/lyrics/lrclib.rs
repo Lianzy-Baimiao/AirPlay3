@@ -60,6 +60,11 @@ fn pct(s: &str) -> String {
 
 /// 联网用的 HTTP 客户端（代理、TLS、超时与界面设置一致），专辑图片下载也用它
 pub fn agent(net: &NetworkSettings) -> Result<ureq::Agent, String> {
+    agent_with(net, Some(Duration::from_secs(15)))
+}
+
+/// 同上；`total` = 整个请求的超时（None：只限制连接和等响应头的时间，用于一直不结束的网络电台）
+pub fn agent_with(net: &NetworkSettings, total: Option<Duration>) -> Result<ureq::Agent, String> {
     // 未配置自定义代理时沿用环境变量 / Windows 系统代理（与浏览器一致）
     let proxy = match proxy_url(net) {
         Some(u) => Some(ureq::Proxy::new(&u).map_err(|e| format!("代理设置无效: {e}"))?),
@@ -75,7 +80,9 @@ pub fn agent(net: &NetworkSettings) -> Result<ureq::Agent, String> {
         .tls_config(tls)
         .proxy(proxy)
         .user_agent(ua)
-        .timeout_global(Some(Duration::from_secs(15)))
+        .timeout_global(total)
+        .timeout_connect(Some(Duration::from_secs(10)))
+        .timeout_recv_response(Some(Duration::from_secs(15)))
         .http_status_as_error(false)
         .build();
     Ok(cfg.into())

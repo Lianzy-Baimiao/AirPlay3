@@ -30,9 +30,17 @@ pub trait Source: Send {
     fn read(&mut self, out: &mut Vec<f32>) -> Result<usize>;
     /// 精确跳转到文件内第 `frame` 帧。
     fn seek(&mut self, frame: u64) -> Result<()>;
+    /// 直播流（网络电台）：`read` 返回 0 只是暂时没有数据，不算结束
+    fn live(&self) -> bool {
+        false
+    }
 }
 
 pub fn open_source(path: &Path) -> Result<Box<dyn Source>> {
+    // 网络电台
+    if super::stream::is_url(path) {
+        return Ok(Box::new(super::stream::StreamSource::open(path.to_str().unwrap_or_default())?));
+    }
     // symphonia / Media Foundation 不支持的格式（TTA 等）用自带的解码器
     if let Some(r) = super::codec::open(path) {
         return r;

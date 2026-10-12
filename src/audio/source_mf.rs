@@ -12,7 +12,7 @@ use super::source::{Source, Spec};
 
 static MF_INIT: Once = Once::new();
 
-fn mf_startup() {
+pub(crate) fn mf_startup() {
     MF_INIT.call_once(|| unsafe {
         if let Err(e) = MFStartup(MF_VERSION, MFSTARTUP_FULL) {
             log::error!("MFStartup 失败: {e}");

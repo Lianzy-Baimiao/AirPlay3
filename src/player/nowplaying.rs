@@ -166,6 +166,10 @@ impl Player {
     /// 曲目改变（或 `force`）时更新正在播放信息，并在后台加载歌词/封面；没有歌词且开启了自动下载时从 LRCLIB 下载。
     pub fn refresh_now_playing(&self, now: &SharedNow, force: bool) {
         let g = self.core.lock();
+        // 听电台时由界面按电台信息更新（gui::radiowin）
+        if g.radio.is_some() {
+            return;
+        }
         let id = self.current(&g);
         if !force && now.lock().track == id {
             return;

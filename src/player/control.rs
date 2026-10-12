@@ -11,6 +11,8 @@ impl Player {
     pub fn play_at(&self, src: Source, id: TrackId, seek: f64, paused: bool) {
         let mut g = self.core.lock();
         let core = &mut *g;
+        // 听本地歌曲：退出电台
+        core.radio = None;
         if let Some(t) = core.lib.tracks.get_mut(&id).filter(|t| t.broken) {
             t.broken = false; // 用户主动播放时重新尝试
         }
@@ -27,7 +29,11 @@ impl Player {
         match self.engine.state() {
             PlayState::Playing => self.engine.set_paused(true),
             PlayState::Paused => self.engine.set_paused(false),
-            PlayState::Stopped => self.play_current_or_first(),
+            PlayState::Stopped => {
+                if !self.radio_resume() {
+                    self.play_current_or_first();
+                }
+            }
         }
         self.repaint();
     }
@@ -35,7 +41,11 @@ impl Player {
     pub fn play(&self) {
         match self.engine.state() {
             PlayState::Paused => self.engine.set_paused(false),
-            PlayState::Stopped => self.play_current_or_first(),
+            PlayState::Stopped => {
+                if !self.radio_resume() {
+                    self.play_current_or_first();
+                }
+            }
             PlayState::Playing => {}
         }
         self.repaint();
@@ -71,6 +81,10 @@ impl Player {
     }
 
     fn step(&self, forward: bool) {
+        // 听电台时：上一个 / 下一个电台
+        if self.radio_step(forward) {
+            return;
+        }
         let mut g = self.core.lock();
         let Some(cur) = self.current(&g) else {
             drop(g);
@@ -94,6 +108,10 @@ impl Player {
     }
 
     pub fn seek(&self, secs: f64) {
+        // 网络电台是直播，不能跳转
+        if self.core.lock().radio.is_some() {
+            return;
+        }
         self.engine.seek(secs);
         self.repaint();
     }

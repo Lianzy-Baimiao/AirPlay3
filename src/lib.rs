@@ -9,6 +9,7 @@ pub mod lyrics;
 pub mod media;
 pub mod platform;
 pub mod player;
+pub mod radio;
 pub mod search;
 pub mod skin;
 pub mod util;

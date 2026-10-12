@@ -19,6 +19,8 @@ pub struct Snap {
     pub muted: bool,
     pub mode: PlayMode,
     pub current: Option<TrackId>,
+    /// 正在听的电台（播放地址）
+    pub radio: Option<String>,
     pub lib_rev: u64,
     pub topmost: bool,
     pub show: [bool; 3],
@@ -54,6 +56,7 @@ pub struct UiState {
     pub bar_hot: super::panels::bar::Hot,
     pub slogan: f32,
     pub cover_track: Option<TrackId>,
+    pub cover_radio: Option<String>,
     pub now_rev: u64,
     pub track_started: Instant,
     pub lyric_mode: f32,
@@ -92,6 +95,7 @@ impl UiState {
             bar_hot: super::panels::bar::Hot::None,
             slogan: 0.0,
             cover_track: None,
+            cover_radio: None,
             now_rev: u64::MAX,
             track_started: Instant::now(),
             lyric_mode: 0.0,
@@ -150,6 +154,7 @@ impl App {
             muted: s.playback.muted,
             mode: s.playback.mode,
             current,
+            radio: g.radio.as_ref().map(|r| r.station.url.clone()),
             lib_rev: g.lib.rev,
             topmost: s.general.topmost,
             show: [s.window.show_cover, s.window.show_eq, s.window.show_list],
@@ -232,6 +237,7 @@ impl App {
         if strips[3] {
             self.dirty(Pane::List);
         }
+        self.sync_radio();
         self.tick_desk();
         self.tick_taskbar();
         self.tick_minibar();
@@ -277,7 +283,7 @@ impl App {
         let cover = n.cover.as_ref().map(|c| c.raw.clone());
         let (title, artist, album) = (n.title.clone(), n.artist.clone(), n.album.clone());
         drop(n);
-        s.update(snap.playing, snap.current.is_none(), &title, &artist, &album, cover.as_deref().map(|v| v.as_slice()));
+        s.update(snap.playing, snap.current.is_none() && snap.radio.is_none(), &title, &artist, &album, cover.as_deref().map(|v| v.as_slice()));
     }
 
     /// 封面/歌词：新歌开始时显示大封面 + 信息，约 8 秒后有歌词则切换为小封面 + 歌词
@@ -289,8 +295,9 @@ impl App {
         };
         let ui = &mut self.ui;
         let mut dirty = false;
-        if ui.cover_track != ui.snap.current {
+        if ui.cover_track != ui.snap.current || ui.cover_radio != ui.snap.radio {
             ui.cover_track = ui.snap.current;
+            ui.cover_radio = ui.snap.radio.clone();
             ui.track_started = now;
             ui.info = 1.0;
             ui.lyric_mode = 0.0;
@@ -302,7 +309,8 @@ impl App {
         }
         let age = now - ui.track_started;
         let lyric_target = if has_lyrics && age > Duration::from_secs(8) { 1.0 } else { 0.0 };
-        let info_target = if age > Duration::from_secs(8) { 0.0 } else { 1.0 };
+        // 电台没有歌词：电台名 / 当前节目一直显示
+        let info_target = if age > Duration::from_secs(8) && ui.snap.radio.is_none() { 0.0 } else { 1.0 };
         dirty |= approach(&mut ui.lyric_mode, lyric_target, 0.06);
         dirty |= approach(&mut ui.info, info_target, 0.08);
         if ui.lyric_idx != idx {

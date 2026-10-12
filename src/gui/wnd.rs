@@ -72,6 +72,7 @@ pub fn after_create(start_hidden: bool) {
             Ok(s) if s.starts_with("settings:") => app.act(super::menu::Act::SettingsTab(s[9..].parse().unwrap_or(0))),
             Ok("minibar") => app.toggle_minibar(),
             Ok("search") => app.open_lyric_search(),
+            Ok("radio") => app.open_radio(),
             _ => {}
         }
         #[cfg(debug_assertions)]
@@ -90,6 +91,9 @@ impl App {
             return Some(r);
         }
         if let Some(r) = self.settings_msg(hwnd, msg, wp, lp) {
+            return Some(r);
+        }
+        if let Some(r) = self.radio_msg(hwnd, msg, wp, lp) {
             return Some(r);
         }
         if let Some(r) = self.desk_msg(hwnd, msg, wp, lp) {

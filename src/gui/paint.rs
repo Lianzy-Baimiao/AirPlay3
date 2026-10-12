@@ -48,7 +48,7 @@ impl App {
                     title: &title,
                     artist: &artist,
                     album: &album,
-                    active: s.current.is_some(),
+                    active: s.current.is_some() || s.radio.is_some(),
                     lines: &lines,
                     current: ui.lyric_idx,
                     lyric_mode: ui.lyric_mode,

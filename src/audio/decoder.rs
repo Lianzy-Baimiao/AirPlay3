@@ -191,6 +191,10 @@ impl Decoder {
             }
         }
         if n == 0 {
+            // 网络电台暂时没收到数据：不算结束，下次再读（read 里已经等过一小会儿）
+            if act.carry.is_empty() && act.src.live() {
+                return;
+            }
             return self.finish_item();
         }
         let mut ring = self.shared.ring.lock();
