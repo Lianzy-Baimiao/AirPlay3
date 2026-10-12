@@ -170,6 +170,17 @@ impl App {
                 let cur = self.player.core.lock().settings.taskbar_lyric.align;
                 (0..3u8).map(|a| check(model::taskbar_align_label(a), None, a == cur, Act::TaskbarAlign(a))).collect()
             }
+            // 与桌面歌词右键菜单的「配色」「显示行数」相同
+            ChoiceKind::DeskStyle | ChoiceKind::DeskLines => {
+                let menu = self.desk_menu();
+                let want = if kind == ChoiceKind::DeskStyle { "配色" } else { "显示行数" };
+                menu.into_iter()
+                    .find_map(|it| match it {
+                        super::menu::Item::Sub { label, items } if label == want => Some(items),
+                        _ => None,
+                    })
+                    .unwrap_or_default()
+            }
         };
         self.popup(items);
     }
@@ -292,6 +303,9 @@ impl App {
                 sw.win.dirty = true;
                 if applied && f.taskbar() {
                     self.sync_taskbar_lyric();
+                }
+                if applied && f == model::Field::DeskFont {
+                    self.sync_desk_lyric();
                 }
             }
             WM_KEYDOWN | WM_SYSKEYDOWN => {

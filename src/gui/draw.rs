@@ -67,9 +67,15 @@ impl Canvas {
 
     /// 合成文字遮罩：左上角对齐 (x, y)
     pub fn mask(&mut self, m: &Mask, x: i32, y: i32, c: Rgba) {
+        self.mask_grad(m, x, y, c, c);
+    }
+
+    /// 合成文字遮罩，颜色从上到下由 `top` 渐变到 `bottom`（桌面歌词的配色）
+    pub fn mask_grad(&mut self, m: &Mask, x: i32, y: i32, top: Rgba, bottom: Rgba) {
         let clip = self.clip_rect().inter(&R::new(x - 1, y, m.w as i32, m.h as i32));
-        let a = c.3 as f32 / 255.0;
         for py in clip.y..clip.bottom() {
+            let c = if top == bottom || m.h < 2 { top } else { top.mix(bottom, (py - y) as f32 / (m.h - 1) as f32) };
+            let a = c.3 as f32 / 255.0;
             for px in clip.x..clip.right() {
                 let cov = m.cov[((py - y) * m.w as i32 + (px - x + 1)) as usize];
                 if cov == [0; 3] {

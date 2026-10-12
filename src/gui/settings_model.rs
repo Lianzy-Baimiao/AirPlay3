@@ -46,12 +46,14 @@ pub enum Field {
     TaskbarY,
     TaskbarFont,
     TaskbarWidth,
+    /// 桌面歌词字号
+    DeskFont,
 }
 
 impl Field {
     /// 数字输入框：输入过程中（如只打了 "-"）解析不了时先不改设置
     pub fn numeric(self) -> bool {
-        matches!(self, Field::ProxyPort | Field::TaskbarX | Field::TaskbarY | Field::TaskbarFont | Field::TaskbarWidth)
+        matches!(self, Field::ProxyPort | Field::TaskbarX | Field::TaskbarY | Field::TaskbarFont | Field::TaskbarWidth | Field::DeskFont)
     }
 
     /// 改了以后要重新摆放任务栏歌词
@@ -77,6 +79,8 @@ pub enum ChoiceKind {
     ProxyKind,
     LyricSource,
     TaskbarAlign,
+    DeskStyle,
+    DeskLines,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -164,6 +168,7 @@ pub fn raw_text(s: &Settings, f: Field) -> String {
         Field::TaskbarY => t.offset_y.to_string(),
         Field::TaskbarFont => format!("{}", t.font_size),
         Field::TaskbarWidth => t.width.to_string(),
+        Field::DeskFont => format!("{}", s.desk_lyric.font_size),
     }
 }
 
@@ -198,6 +203,15 @@ pub fn set_text(s: &mut Settings, f: Field, v: &str) -> bool {
         Field::TaskbarWidth => match num(120, 2000) {
             Some(n) => t.width = n,
             None => return false,
+        },
+        Field::DeskFont => match v.trim().parse::<f32>() {
+            Ok(n) if n.is_finite() => {
+                let d = &mut s.desk_lyric;
+                // 改字号时行数不变（窗口高度随之变化）
+                d.lines = d.line_count();
+                d.font_size = n.clamp(16.0, 72.0);
+            }
+            _ => return false,
         },
     }
     true
@@ -246,12 +260,15 @@ pub fn widgets(tab: usize, s: &Settings, device_name: &str) -> Vec<Widget> {
         TAB_DESK => vec![
             Check(Key::DeskLyric, "显示桌面歌词"),
             Check(Key::DeskLyricLocked, "锁定桌面歌词 (鼠标穿透)"),
+            Choice("配色", crate::gui::desklyric::style(s.desk_lyric.style).name.into(), ChoiceKind::DeskStyle),
+            Choice("显示行数", format!("{} 行（拖动桌面歌词的上下边也能调整）", s.desk_lyric.line_count()), ChoiceKind::DeskLines),
+            Text(Field::DeskFont, "桌面歌词字号"),
             Check(Key::TaskbarLyric, "在任务栏显示歌词"),
             Check(Key::TaskbarTwoLines, "任务栏歌词第二行显示下一句"),
             Choice("任务栏歌词位置", taskbar_align_label(s.taskbar_lyric.align).into(), ChoiceKind::TaskbarAlign),
             Text(Field::TaskbarX, "水平偏移 (像素)"),
             Text(Field::TaskbarY, "垂直偏移 (像素)"),
-            Text(Field::TaskbarFont, "字号"),
+            Text(Field::TaskbarFont, "任务栏歌词字号"),
             Text(Field::TaskbarWidth, "宽度 (像素)"),
             Label("偏移：正数向右 / 向下。也可以直接在任务栏上按住歌词拖动".into()),
             Button("恢复默认位置", Btn::ResetTaskbarPos),

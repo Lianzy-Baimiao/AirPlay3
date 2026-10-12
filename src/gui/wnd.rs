@@ -178,7 +178,7 @@ impl App {
         Some(LRESULT(0))
     }
 
-    fn track_leave(&mut self, hwnd: HWND) {
+    pub(super) fn track_leave(&mut self, hwnd: HWND) {
         // 仅调试构建：自测脚本用投递的鼠标消息模拟悬停，此时真实光标不在窗口上，不能注册离开通知
         #[cfg(debug_assertions)]
         if std::env::var_os("AIRPLAY3_TEST_NOLEAVE").is_some() {

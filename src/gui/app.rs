@@ -231,7 +231,7 @@ impl App {
 }
 
 /// 矩形是否有一部分在某个显示器上（拔掉显示器后，留在那边的面板回到默认位置）
-fn on_screen(r: R) -> bool {
+pub(super) fn on_screen(r: R) -> bool {
     use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromRect};
     let rc = RECT { left: r.x, top: r.y, right: r.right(), bottom: r.bottom() };
     !unsafe { MonitorFromRect(&rc, MONITOR_DEFAULTTONULL) }.is_invalid()

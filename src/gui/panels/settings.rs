@@ -8,7 +8,7 @@ use crate::gui::text::{self, Font, Hint};
 use crate::skin::icons;
 
 pub const W: i32 = 470;
-pub const H: i32 = 400;
+pub const H: i32 = 450;
 const FONT: Font = Font::px(12.0, false);
 const TAB_Y: i32 = 26;
 const TOP: i32 = 62;
@@ -23,7 +23,7 @@ pub fn tab_rect(i: usize) -> R {
 pub fn row_h(tab: usize) -> i32 {
     match tab {
         TAB_HOTKEYS => 23,
-        TAB_DESK => 25,
+        TAB_DESK => 24,
         _ => 28,
     }
 }

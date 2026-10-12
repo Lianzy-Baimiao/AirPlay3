@@ -135,10 +135,17 @@ impl Canvas {
         let (mx, my) = (r.x as f32 + hw, r.y as f32 + hh);
         let radius = radius.min(hw).min(hh);
         for y in cr.y..cr.bottom() {
+            let qy = (y as f32 + 0.5 - my).abs() - (hh - radius);
             for x in cr.x..cr.right() {
-                // 圆角矩形的有符号距离（内部为负）
                 let qx = (x as f32 + 0.5 - mx).abs() - (hw - radius);
-                let qy = (y as f32 + 0.5 - my).abs() - (hh - radius);
+                // 离边和圆角都超过 1.5 像素的内部：完全被填充、不碰描边，不用算距离（大窗口的底色快很多，结果一样）
+                if qx <= -1.5 && qy <= -1.5 {
+                    if let Some(f) = fill {
+                        self.blend(x, y, f, 1.0);
+                    }
+                    continue;
+                }
+                // 圆角矩形的有符号距离（内部为负）
                 let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - radius;
                 let outer = (0.5 - sd).clamp(0.0, 1.0);
                 let inner = (-0.5 - sd).clamp(0.0, 1.0);
@@ -149,6 +156,52 @@ impl Canvas {
                     self.blend(x, y, b, outer - inner);
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 加快内部填充前的写法（每个像素都算距离），用来对照结果
+    fn reference(c: &mut Canvas, r: R, radius: f32, fill: Option<Rgba>, border: Option<Rgba>) {
+        let cr = r.inter(&c.clip_rect());
+        let (hw, hh) = (r.w as f32 / 2.0, r.h as f32 / 2.0);
+        let (mx, my) = (r.x as f32 + hw, r.y as f32 + hh);
+        let radius = radius.min(hw).min(hh);
+        for y in cr.y..cr.bottom() {
+            for x in cr.x..cr.right() {
+                let qx = (x as f32 + 0.5 - mx).abs() - (hw - radius);
+                let qy = (y as f32 + 0.5 - my).abs() - (hh - radius);
+                let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - radius;
+                let (outer, inner) = ((0.5 - sd).clamp(0.0, 1.0), (-0.5 - sd).clamp(0.0, 1.0));
+                if let Some(f) = fill {
+                    c.blend(x, y, f, if border.is_some() { inner } else { outer });
+                }
+                if let Some(b) = border {
+                    c.blend(x, y, b, outer - inner);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn round_rect_same_as_reference() {
+        let cases = [
+            (R::new(0, 0, 700, 450), 8.0, Some(Rgba(20, 20, 20, 150)), Some(Rgba(255, 255, 255, 40))),
+            (R::new(3, 2, 61, 23), 3.0, Some(Rgba::gray(52)), Some(Rgba::gray(100))),
+            (R::new(5, 5, 7, 14), 2.0, Some(Rgba(240, 110, 30, 200)), None),
+            (R::new(-4, 10, 40, 9), 6.0, None, Some(Rgba::gray(200))),
+            (R::new(1, 1, 3, 3), 8.0, Some(Rgba::gray(90)), Some(Rgba::gray(10))),
+        ];
+        for (r, radius, fill, border) in cases {
+            let (mut a, mut b) = (Canvas::new(720, 470), Canvas::new(720, 470));
+            a.fill(R::new(0, 0, 720, 470), Rgba(10, 60, 90, 255));
+            b.fill(R::new(0, 0, 720, 470), Rgba(10, 60, 90, 255));
+            a.round_rect(r, radius, fill, border);
+            reference(&mut b, r, radius, fill, border);
+            assert!(a.px == b.px, "{r:?} 与原写法不一致");
         }
     }
 }

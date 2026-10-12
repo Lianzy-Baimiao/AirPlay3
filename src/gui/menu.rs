@@ -59,7 +59,12 @@ pub enum Act {
     SetLyricSource(crate::lyrics::online::Provider),
     DeskToggle,
     DeskLock,
-    DeskTwoLines,
+    /// 桌面歌词显示几行
+    DeskLines(usize),
+    /// 桌面歌词配色；None = 换下一种
+    DeskStyle(Option<usize>),
+    /// 桌面歌词字号增减（行数不变，窗口随之变高 / 变矮）
+    DeskFont(f32),
     DeskMenu,
     TaskbarToggle,
     TaskbarMenu,

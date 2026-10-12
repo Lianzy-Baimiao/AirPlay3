@@ -265,11 +265,30 @@ pub struct DeskLyricSettings {
     pub locked: bool,
     pub font: String,
     pub font_size: f32,
-    pub played: [u8; 3],
-    pub unplayed: [u8; 3],
+    /// 配色（`gui::desklyric::STYLES` 的序号）
+    pub style: usize,
+    /// 显示几行（窗口高度随之变化；拖动窗口上下边调整）。
+    /// 旧配置里没有这一项，读成 0（不用整体默认值 2），再按 `two_lines` 算
+    #[serde(default)]
+    pub lines: usize,
+    /// 旧版本的「双行显示」，只读不写
+    #[serde(skip_serializing)]
     pub two_lines: bool,
     pub pos: Option<[i32; 2]>,
     pub width: Option<i32>,
+}
+
+impl DeskLyricSettings {
+    pub const MAX_LINES: usize = 12;
+
+    /// 实际显示的行数
+    pub fn line_count(&self) -> usize {
+        match self.lines {
+            0 if self.two_lines => 2,
+            0 => 1,
+            n => n.min(Self::MAX_LINES),
+        }
+    }
 }
 
 impl Default for DeskLyricSettings {
@@ -279,8 +298,8 @@ impl Default for DeskLyricSettings {
             locked: false,
             font: "Microsoft YaHei UI".into(),
             font_size: 34.0,
-            played: [255, 214, 92],
-            unplayed: [96, 196, 255],
+            style: 0,
+            lines: 2,
             two_lines: true,
             pos: None,
             width: None,
@@ -458,6 +477,24 @@ mod tests {
         assert_eq!(partial.playback.volume, 0.3);
         assert!(partial.playback.resume_last);
         assert_eq!(partial.audio.buffer_ms, 60);
+    }
+
+    /// 旧版本的桌面歌词设置（双行开关、自定义颜色）照样能读，行数从「双行显示」换算
+    #[test]
+    fn desk_lyric_migration() {
+        let old: Settings = serde_json::from_str(r#"{"desk_lyric":{"visible":true,"two_lines":false,"played":[1,2,3],"unplayed":[4,5,6]}}"#).unwrap();
+        assert_eq!((old.desk_lyric.visible, old.desk_lyric.line_count()), (true, 1));
+        let old2: Settings = serde_json::from_str(r#"{"desk_lyric":{"two_lines":true}}"#).unwrap();
+        assert_eq!(old2.desk_lyric.line_count(), 2);
+        assert_eq!(Settings::default().desk_lyric.line_count(), 2);
+        let mut s = Settings::default();
+        s.desk_lyric.lines = 5;
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.desk_lyric.line_count(), 5);
+        let v: serde_json::Value = serde_json::to_value(&s).unwrap();
+        assert!(v["desk_lyric"].get("two_lines").is_none(), "two_lines 不再写入");
+        s.desk_lyric.lines = 99;
+        assert_eq!(s.desk_lyric.line_count(), DeskLyricSettings::MAX_LINES);
     }
 
     #[test]

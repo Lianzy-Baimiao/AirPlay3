@@ -35,17 +35,23 @@ impl App {
         let s = &self.ui.snap;
         let order = PlayMode::ALL.iter().map(|m| check(m.label(), None, s.mode == *m, Act::SetMode(*m))).collect();
         // 先取出设置再拼菜单：同一个表达式里两次 core.lock() 时第一个锁要到表达式结束才释放，第二次加锁会自己等自己（死锁）
-        let (desk, taskbar) = {
+        let (desk, desk_locked, taskbar) = {
             let g = self.player.core.lock();
-            (g.settings.desk_lyric.visible, g.settings.taskbar_lyric.visible)
+            (g.settings.desk_lyric.visible, g.settings.desk_lyric.locked, g.settings.taskbar_lyric.visible)
         };
-        vec![
+        let mut v = vec![
             check("歌词图片", Some(icons::LYRIC_PIC), s.show[0], Act::TogglePane(0)),
             check("音乐列表", Some(icons::LIST), s.show[2], Act::TogglePane(2)),
             check("均衡器", Some(icons::EQ), s.show[1], Act::TogglePane(1)),
             Item::Sep,
             check("迷你歌词", None, self.minibar.is_some(), Act::Minibar),
             check("桌面歌词", None, desk, Act::DeskToggle),
+        ];
+        // 锁定后桌面歌词点不到（鼠标穿透），从这里解锁
+        if desk && desk_locked {
+            v.push(item("解锁桌面歌词", Act::DeskLock));
+        }
+        v.extend([
             check("任务栏歌词", None, taskbar, Act::TaskbarToggle),
             Item::Sep,
             Item::Sub { label: "列表播放顺序".into(), items: order },
@@ -53,7 +59,8 @@ impl App {
             item("配置", Act::OpenConfig),
             Item::Sep,
             item("退出", Act::Quit),
-        ]
+        ]);
+        v
     }
 
     fn lyric_menu(&self) -> Vec<Item> {
@@ -242,29 +249,30 @@ impl App {
                     s.win.dirty = true;
                 }
             }
-            Act::DeskToggle | Act::DeskLock | Act::DeskTwoLines => {
+            Act::DeskToggle | Act::DeskLock | Act::DeskLines(_) | Act::DeskStyle(_) | Act::DeskFont(_) => {
                 {
+                    use crate::config::DeskLyricSettings as D;
                     let mut g = p.core.lock();
                     let d = &mut g.settings.desk_lyric;
                     match a {
                         Act::DeskToggle => d.visible = !d.visible,
                         Act::DeskLock => d.locked = !d.locked,
-                        _ => d.two_lines = !d.two_lines,
+                        Act::DeskLines(n) => d.lines = n.clamp(1, D::MAX_LINES),
+                        Act::DeskStyle(Some(i)) => d.style = i.min(super::desklyric::STYLES.len() - 1),
+                        Act::DeskStyle(None) => d.style = (d.style + 1) % super::desklyric::STYLES.len(),
+                        Act::DeskFont(df) => {
+                            // 先把旧配置的行数定下来，改字号时行数不变
+                            d.lines = d.line_count();
+                            d.font_size = (d.font_size + df).clamp(16.0, 72.0);
+                        }
+                        _ => {}
                     }
                     g.touch_settings();
                 }
                 self.sync_desk_lyric();
                 p.save(false);
             }
-            Act::DeskMenu => {
-                let d = p.core.lock().settings.desk_lyric.clone();
-                self.popup(vec![
-                    check("锁定桌面歌词", None, d.locked, Act::DeskLock),
-                    check("双行显示", None, d.two_lines, Act::DeskTwoLines),
-                    Item::Sep,
-                    item("关闭桌面歌词", Act::DeskToggle),
-                ]);
-            }
+            Act::DeskMenu => self.popup(self.desk_menu()),
             Act::TaskbarToggle | Act::TaskbarAlign(_) | Act::TaskbarFont(_) | Act::TaskbarReset | Act::TaskbarTwoLines => {
                 {
                     use crate::config::TaskbarLyricSettings as T;
