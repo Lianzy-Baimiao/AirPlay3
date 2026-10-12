@@ -33,6 +33,10 @@ pub trait Source: Send {
 }
 
 pub fn open_source(path: &Path) -> Result<Box<dyn Source>> {
+    // symphonia / Media Foundation 不支持的格式（TTA 等）用自带的解码器
+    if let Some(r) = super::codec::open(path) {
+        return r;
+    }
     match SymphSource::open(path) {
         Ok(s) => Ok(Box::new(s)),
         Err(e) => match super::source_mf::MfSource::open(path) {

@@ -48,13 +48,13 @@ AirPlay3 是 2012 年前后的一款国产绿色音乐播放器（airplayme.com�
   - 悬停显示工具条（上一首 / 暂停 / 下一首 / 字号 / 配色 / 锁定 / 关闭），右键菜单和「配置 → 桌面歌词」里也能调；锁定后可在主菜单「解锁桌面歌词」
 - 任务栏歌词：嵌入任务栏显示当前与下一句。位置可选靠左 / 居中 / 靠右，并能调水平、垂直偏移：直接在任务栏上按住歌词拖动，或在「配置 → 桌面歌词」里填数字
 - 播放引擎：无缝衔接、CUE 分轨、WASAPI 共享 / 独占模式、续播上次位置
-- 格式：MP3 / FLAC / OGG / WAV / AIFF / M4A(AAC、ALAC) / WMA / AC3 等；列表文件 m3u / m3u8 / pls / wpl / asx / xspf / ttpl / apl
+- 格式：MP3 / FLAC / OGG / WAV / AIFF / M4A(AAC、ALAC) / WMA / AC3 / TTA 等；列表文件 m3u / m3u8 / pls / wpl / asx / xspf / ttpl / apl
 - 本地歌词：LRC（GBK / UTF-8 自动识别、乱码修复、模糊匹配文件名），内嵌歌词与封面
 
 ## 尚未完成
 
 - 原版的在线电台、在线歌词等服务早已关闭，不再提供
-- 不支持 APE / TAK / TTA / WV / MPC / DTS
+- 不支持 APE / TAK / WV / MPC / DTS（正在逐个加入）
 
 ## 使用
 

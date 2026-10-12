@@ -25,8 +25,19 @@ pub struct TagInfo {
     pub bitrate: u32,
 }
 
+/// lofty 不认识、标签另外读的格式（见 `carrier`）；音频属性由自带解码器提供
+fn via_carrier(path: &Path) -> bool {
+    matches!(crate::util::ext_lower(path).as_str(), "tta")
+}
+
 fn open(path: &Path, cover: bool) -> Option<lofty::file::TaggedFile> {
     let opts = ParseOptions::new().read_cover_art(cover).parsing_mode(ParsingMode::Relaxed);
+    if via_carrier(path) {
+        let data = super::carrier::build(path)?;
+        let opts = ParseOptions::new().read_cover_art(cover).parsing_mode(ParsingMode::Relaxed).read_properties(false);
+        let p = lofty::probe::Probe::with_file_type(std::io::Cursor::new(data), lofty::file::FileType::Mpeg);
+        return p.options(opts).read().ok();
+    }
     let probe = lofty::probe::Probe::open(path).ok()?.options(opts).guess_file_type().ok()?;
     probe.read().ok()
 }
@@ -48,6 +59,24 @@ fn pick(tags: &[&Tag], get: impl Fn(&Tag) -> Option<String>) -> String {
 }
 
 pub fn read_tags(path: &Path) -> Option<TagInfo> {
+    if !via_carrier(path) {
+        return read_lofty(path);
+    }
+    // 没有标签也要有时长、采样率等
+    let mut t = read_lofty(path).unwrap_or_default();
+    let dec = crate::audio::codec::open_decoder(path)?.ok()?;
+    let s = dec.spec();
+    t.sample_rate = s.rate;
+    t.channels = s.channels.min(255) as u8;
+    t.duration = dec.total_frames().map_or(0.0, |n| n as f64 / s.rate.max(1) as f64);
+    if t.duration > 0.0 {
+        let bytes = std::fs::metadata(path).map_or(0, |m| m.len());
+        t.bitrate = (bytes as f64 * 8.0 / t.duration / 1000.0).round() as u32;
+    }
+    Some(t)
+}
+
+fn read_lofty(path: &Path) -> Option<TagInfo> {
     let f = open(path, false)?;
     let p = f.properties();
     let tags = ordered_tags(&f);

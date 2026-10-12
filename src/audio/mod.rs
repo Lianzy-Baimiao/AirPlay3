@@ -1,5 +1,6 @@
 //! 播放引擎：解码（symphonia / Media Foundation）→ 样本队列 → 均衡器/音量 → WASAPI（共享/独占）。
 
+pub mod codec;
 mod decoder;
 pub mod devices;
 pub mod dsp;

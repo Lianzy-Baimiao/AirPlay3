@@ -2,16 +2,17 @@
 
 pub mod artist;
 pub mod artwork;
+pub mod carrier;
 pub mod cover;
 pub mod cue;
 pub mod metadata;
 
 /// 能解码的音频扩展名。
 /// symphonia: mp3/mp2/mp1/flac/ogg/oga/wav/aif/aiff/aifc/m4a/mp4/aac/caf/mka/webm/alac；
-/// Media Foundation 兜底: wma/asf/ac3/m4b 等。
+/// Media Foundation 兜底: wma/asf/ac3/m4b 等；自带解码器（audio::codec）: tta。
 pub const AUDIO_EXTS: &[&str] = &[
     "mp3", "mp2", "mp1", "mpa", "flac", "ogg", "oga", "wav", "aif", "aiff", "aifc", "m4a", "m4b", "mp4", "aac", "alac",
-    "caf", "mka", "webm", "wma", "asf", "ac3",
+    "caf", "mka", "webm", "wma", "asf", "ac3", "tta",
 ];
 
 /// 能导入的播放列表扩展名（原版"列表文件"）。
