@@ -47,3 +47,29 @@ fn dirty_tags_live() {
         assert_eq!(loose, expect_loose, "{t}");
     }
 }
+
+/// 多来源：用户曲库里 LRCLIB 搜不到的歌，「自动」能找到带时间轴的歌词；LrcAPI 同时给出专辑图片
+#[test]
+#[ignore]
+fn online_sources_live() {
+    use airplay3::lyrics::online::{Provider, best_match, covers, search};
+    let net = airplay3::config::NetworkSettings::default();
+    for p in Provider::ORDER {
+        let r = search(&net, &[p], "怪咖", "薛之谦");
+        println!("{} 搜索 怪咖 -> {:?}", p.label(), r.as_ref().map(|v| v.len()));
+    }
+    let c = covers(&net, "怪咖", "薛之谦").expect("LrcAPI 图片搜索失败");
+    println!("LrcAPI 图片 {} 条，第一条 {}", c.len(), c.first().map(|x| x.cover.as_str()).unwrap_or(""));
+    assert!(!c.is_empty());
+    // LrcAPI 是模糊搜索：乱写的歌名也会返回相近的结果；有时返回 404（按「没有结果」处理），都不应报错
+    assert!(search(&net, &[Provider::LrcApi], "这首歌肯定不存在qwxz", "没有这个人qwxz").is_ok());
+    let cases = [("亲爱的你的棉裤真的不在我家[music.migu.cn]", "齐一[music.migu.cn]", 0.0), ("站在高岗上", "起点音乐", 0.0), ("冬眠", "严浩翔", 0.0), ("一剪梅", "费玉清", 0.0)];
+    let mut found = 0;
+    for (t, a, d) in cases {
+        let r = best_match(&net, Provider::Auto, t, a, d);
+        let got = r.as_ref().ok().and_then(|x| x.as_ref()).map(|(c, txt)| format!("{} 「{}」 {} 行", c.provider.label(), c.title, txt.lines().count()));
+        println!("{t} / {a} -> {got:?} {}", r.as_ref().err().cloned().unwrap_or_default());
+        found += got.is_some() as usize;
+    }
+    assert!(found >= 3, "只找到 {found} 首");
+}

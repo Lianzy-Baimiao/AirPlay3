@@ -9,7 +9,7 @@ use super::app::{App, WM_APP_ASYNC};
 use super::panels::search::{self as sp, ResultRow, SearchModel};
 use super::popup::Popup;
 use crate::library::TrackId;
-use crate::lyrics::lrclib::Record;
+use crate::lyrics::online::{self, Candidate};
 use crate::player::nowplaying::Link;
 
 pub struct LyricSearch {
@@ -17,7 +17,7 @@ pub struct LyricSearch {
     pub track: TrackId,
     pub fields: [String; 2],
     pub focus: Option<usize>,
-    pub results: Vec<Record>,
+    pub results: Vec<Candidate>,
     pub selected: Option<usize>,
     pub hover: Option<usize>,
     pub hot_button: Option<usize>,
@@ -68,7 +68,10 @@ impl App {
     }
 
     pub fn run_search(&mut self) {
-        let net = self.player.core.lock().settings.network.clone();
+        let (net, source) = {
+            let g = self.player.core.lock();
+            (g.settings.network.clone(), g.settings.lyrics.source)
+        };
         let Some(s) = self.search.as_mut() else { return };
         s.seq += 1;
         s.busy = true;
@@ -79,8 +82,15 @@ impl App {
         std::thread::spawn(move || {
             // 后台线程出错也要让界面得到结果，不能一直显示“正在搜索”
             let (title, artist) = (title.trim().to_string(), artist.trim().to_string());
-            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::lyrics::lrclib::search_loose(&net, &title, &artist)))
-                .unwrap_or_else(|_| Err("内部错误".into()));
+            let targets = source.targets();
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let v = online::search(&net, &targets, &title, &artist)?;
+                if !v.is_empty() || artist.is_empty() {
+                    return Ok((v, false));
+                }
+                Ok((online::search(&net, &targets, &title, "")?, true))
+            }))
+            .unwrap_or_else(|_| Err("内部错误".into()));
             let _ = tx.send(AsyncMsg::LyricResults(seq, r));
             unsafe {
                 let _ = PostMessageW(Some(HWND(hwnd as _)), WM_APP_ASYNC, WPARAM(0), LPARAM(0));
@@ -88,7 +98,7 @@ impl App {
         });
     }
 
-    pub fn on_lyric_results(&mut self, seq: u64, r: Result<(Vec<Record>, bool), String>) {
+    pub fn on_lyric_results(&mut self, seq: u64, r: Result<(Vec<Candidate>, bool), String>) {
         let Some(s) = self.search.as_mut() else { return };
         if s.seq != seq {
             return;
@@ -96,10 +106,8 @@ impl App {
         s.busy = false;
         match r {
             Ok((mut v, loose)) => {
-                // 带时间轴的在前；同类里时长与当前歌曲接近的在前（只按标题搜时同名歌很多）
-                let dur = s.duration;
-                let dist = |r: &Record| if dur > 0.0 && r.duration > 0.0 { (r.duration - dur).abs() } else { f64::MAX };
-                v.sort_by(|a, b| b.has_synced().cmp(&a.has_synced()).then(dist(a).total_cmp(&dist(b))));
+                // 标题、艺人对得上的在前，再按时长接近程度、来源顺序（LrcAPI → LRCLIB）
+                online::sort_for_list(&mut v, &s.fields[0], &s.fields[1], s.duration);
                 s.status = if v.is_empty() {
                     "没有找到，试试修改标题或艺人".into()
                 } else if loose {
@@ -117,16 +125,44 @@ impl App {
     }
 
     /// 保存所选歌词到歌词目录并关联到这首歌
+    /// 下载所选歌词（后台联网），保存到本地歌词目录并关联到这首歌
     pub fn download_selected(&mut self) {
-        let Some(s) = self.search.as_ref() else { return };
-        let Some(rec) = s.selected.and_then(|i| s.results.get(i)).cloned() else { return };
+        let Some(s) = self.search.as_mut() else { return };
+        let Some(cand) = s.selected.and_then(|i| s.results.get(i)).cloned() else { return };
+        if s.busy {
+            return;
+        }
+        s.busy = true;
+        s.status = format!("正在从{}下载歌词…", cand.provider.label());
+        s.win.dirty = true;
         let id = s.track;
-        let (dir, title, artist) = {
+        let (net, dir, title, artist) = {
             let g = self.player.core.lock();
             let t = g.lib.track(id);
-            (crate::player::nowplaying::save_lyric_dir(&g), t.map(|t| t.display_title()).unwrap_or_default(), t.map(|t| t.artist.clone()).unwrap_or_default())
+            (
+                g.settings.network.clone(),
+                crate::player::nowplaying::save_lyric_dir(&g),
+                t.map(|t| t.display_title()).unwrap_or_default(),
+                t.map(|t| t.artist.clone()).unwrap_or_default(),
+            )
         };
-        match crate::lyrics::lrclib::save(&rec, &dir, &title, &artist) {
+        let (tx, hwnd) = (self.async_tx.clone(), self.bar_hwnd().0 as isize);
+        std::thread::spawn(move || {
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let text = online::fetch(&net, &cand)?;
+                online::save(&text, &cand, &dir, &title, &artist).map_err(|e| format!("保存失败：{e}"))
+            }))
+            .unwrap_or_else(|_| Err("内部错误".into()));
+            let _ = tx.send(AsyncMsg::LyricSaved(id, r));
+            unsafe {
+                let _ = PostMessageW(Some(HWND(hwnd as _)), WM_APP_ASYNC, WPARAM(0), LPARAM(0));
+            }
+        });
+    }
+
+    /// 下载完成：关联并关闭窗口；失败时在窗口里提示
+    pub fn on_lyric_saved(&mut self, id: TrackId, r: Result<std::path::PathBuf, String>) {
+        match r {
             Ok(path) => {
                 self.player.set_lyric_link(id, Link::File(path), &self.now);
                 self.close_search();
@@ -134,7 +170,8 @@ impl App {
             }
             Err(e) => {
                 if let Some(s) = self.search.as_mut() {
-                    s.status = format!("保存失败：{e}");
+                    s.busy = false;
+                    s.status = e;
                     s.win.dirty = true;
                 }
             }
@@ -154,7 +191,7 @@ impl App {
             .results
             .iter()
             .zip(&durs)
-            .map(|(r, d)| ResultRow { title: &r.track_name, artist: &r.artist_name, album: &r.album_name, duration: d, synced: r.has_synced() })
+            .map(|(r, d)| ResultRow { title: &r.title, artist: &r.artist, album: &r.album, duration: d, source: r.provider })
             .collect();
         let m = SearchModel {
             title: &s.fields[0],

@@ -244,15 +244,17 @@ pub struct LyricSettings {
     pub local_pic: bool,
     /// 使用自定义歌词目录 (文件名格式 = "艺人 - 曲目.lrc")
     pub custom_dir: Option<String>,
-    /// 启用自动下载（默认关闭：会把歌名发送到 LRCLIB）
+    /// 启用自动下载（默认关闭：会把 歌名 / 艺人 / 时长 发送到所选歌词来源）
     pub auto_download: bool,
-    /// 自动下载时也下载专辑图片（没有内嵌 / 本地图片时，从 iTunes 下载并保存到本地）
+    /// 自动下载时也下载专辑图片（没有内嵌 / 本地图片时，从 LrcAPI / iTunes 下载并保存到本地）
     pub album_pic: bool,
+    /// 在线歌词来源（默认「自动」：同时搜索 LrcAPI、LRCLIB）
+    pub source: crate::lyrics::online::Provider,
 }
 
 impl Default for LyricSettings {
     fn default() -> Self {
-        Self { show_lyric: true, show_cover: true, embedded_pic: true, local_pic: true, custom_dir: None, auto_download: false, album_pic: true }
+        Self { show_lyric: true, show_cover: true, embedded_pic: true, local_pic: true, custom_dir: None, auto_download: false, album_pic: true, source: Default::default() }
     }
 }
 

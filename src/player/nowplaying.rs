@@ -163,8 +163,8 @@ impl Player {
             let no_cover = now.lock().cover.is_none();
             p.repaint();
             if !found && ls.auto_download && !t.lyric_unlinked {
-                match crate::lyrics::lrclib::best_match(&net, &t.display_title(), &t.artist, &t.album, t.duration) {
-                    Ok(Some(rec)) => match crate::lyrics::lrclib::save(&rec, &lyric_dir, &t.display_title(), &t.artist) {
+                match crate::lyrics::online::best_match(&net, ls.source, &t.display_title(), &t.artist, t.duration) {
+                    Ok(Some((c, text))) => match crate::lyrics::online::save(&text, &c, &lyric_dir, &t.display_title(), &t.artist) {
                         // 下载后保存到本地并关联到这首歌，下次直接用本地文件
                         Ok(path) => {
                             p.link_lyric_file(t.id, &path);

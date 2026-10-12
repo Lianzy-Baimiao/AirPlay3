@@ -1,7 +1,9 @@
-//! 在线专辑图片：iTunes Search API（免费、无需密钥）。原版的图片服务早已关闭，这里作为替代。
+//! 在线专辑图片。原版的图片服务早已关闭，这里作为替代，两个来源都免费、无需密钥：
+//! 1. LrcAPI（与歌词同一个来源，见 `lyrics::online`）：图片多来自 Apple Music，中文歌是简体标签，容易对上；
+//! 2. LrcAPI 没有对得上的结果时，用 iTunes Search API。
 //! 只在用户点「下载专辑图片」或开启「启用自动下载歌词图片 · 下载专辑图片」时才发送 标题 / 艺人。
 //!
-//! 中国区商店没有音乐数据；台湾 / 香港区中文歌最全，但返回的是繁体（周杰倫），与本地简体标签对不上，
+//! iTunes 中国区商店没有音乐数据；台湾 / 香港区中文歌最全，但返回的是繁体（周杰倫），与本地简体标签对不上，
 //! 所以主要按时长匹配（前几条结果里时长相差 4 秒以内的），时长未知时要求标题、艺人一致。
 
 use std::path::{Path, PathBuf};
@@ -66,6 +68,26 @@ fn big_url(u: &str) -> String {
     u.replace("100x100bb", "600x600bb")
 }
 
+fn download(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
+    let mut img = agent.get(url).call().map_err(|e| e.to_string())?;
+    if img.status().as_u16() != 200 {
+        return Err(format!("下载图片失败：HTTP {}", img.status().as_u16()));
+    }
+    img.body_mut().with_config().limit(MAX_BYTES).read_to_vec().map_err(|e| e.to_string())
+}
+
+/// LrcAPI 的图片候选，按 iTunes 的规则挑（不放宽：对不上就交给 iTunes）
+fn from_lrcapi(net: &NetworkSettings, agent: &ureq::Agent, title: &str, artist: &str, duration: f64) -> Result<Option<Vec<u8>>, String> {
+    let hits: Vec<Hit> = crate::lyrics::online::covers(net, title, artist)?
+        .into_iter()
+        .map(|c| Hit { track_name: c.title, artist_name: c.artist, artwork_url100: c.cover, track_time_millis: (c.duration > 0.0).then_some(c.duration * 1000.0) })
+        .collect();
+    match pick(&hits, title, artist, duration, false) {
+        Some(h) => download(agent, &h.artwork_url100).map(Some),
+        None => Ok(None),
+    }
+}
+
 /// 查找并下载专辑图片，返回图片字节。没有找到返回 Ok(None)。
 pub fn find(net: &NetworkSettings, title: &str, artist: &str, duration: f64, loose: bool) -> Result<Option<Vec<u8>>, String> {
     let (title, artist) = (clean_title(title), clean_artist(artist));
@@ -73,6 +95,11 @@ pub fn find(net: &NetworkSettings, title: &str, artist: &str, duration: f64, loo
         return Ok(None);
     }
     let agent = crate::lyrics::lrclib::agent(net)?;
+    match from_lrcapi(net, &agent, &title, &artist, duration) {
+        Ok(Some(bytes)) => return Ok(Some(bytes)),
+        Ok(None) => {}
+        Err(e) => log::info!("LrcAPI 图片搜索失败，改用 iTunes: {e}"),
+    }
     let term = if artist.is_empty() { title.clone() } else { format!("{title} {artist}") };
     for c in countries(&title) {
         let mut resp = agent
@@ -89,12 +116,7 @@ pub fn find(net: &NetworkSettings, title: &str, artist: &str, duration: f64, loo
         }
         let r: Resp = resp.body_mut().read_json().map_err(|e| e.to_string())?;
         if let Some(h) = pick(&r.results, &title, &artist, duration, loose) {
-            let mut img = agent.get(big_url(&h.artwork_url100)).call().map_err(|e| e.to_string())?;
-            if img.status().as_u16() != 200 {
-                return Err(format!("下载图片失败：HTTP {}", img.status().as_u16()));
-            }
-            let bytes = img.body_mut().with_config().limit(MAX_BYTES).read_to_vec().map_err(|e| e.to_string())?;
-            return Ok(Some(bytes));
+            return download(&agent, &big_url(&h.artwork_url100)).map(Some);
         }
     }
     Ok(None)

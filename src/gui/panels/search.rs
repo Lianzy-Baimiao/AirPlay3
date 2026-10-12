@@ -20,7 +20,8 @@ pub struct ResultRow<'a> {
     pub artist: &'a str,
     pub album: &'a str,
     pub duration: &'a str,
-    pub synced: bool,
+    /// 来源（QQ / 网易 / 酷狗 / LRCLIB）
+    pub source: crate::lyrics::online::Provider,
 }
 
 pub struct SearchModel<'a> {
@@ -86,12 +87,16 @@ pub fn paint(c: &mut Canvas, m: &SearchModel) {
         } else if i % 2 == 1 {
             c.fill(row, Rgba::gray(34));
         }
-        let tag = if r.synced { "同步" } else { "文本" };
-        c.text(tag, FONT, LIST.x + 6, y + 3, if r.synced { Rgba(234, 115, 43, 255) } else { Rgba::gray(130) }, Hint::ClearType);
-        c.push_clip(R::new(LIST.x + 40, y, LIST.w - 90, ROW_H));
-        let w = c.text(r.title, FONT, LIST.x + 40, y + 3, Rgba::gray(232), Hint::ClearType);
+        use crate::lyrics::online::Provider;
+        let col = match r.source {
+            Provider::LrcApi => Rgba(60, 150, 240, 255),
+            _ => Rgba::gray(150),
+        };
+        c.text(r.source.tag(), FONT, LIST.x + 6, y + 3, col, Hint::ClearType);
+        c.push_clip(R::new(LIST.x + 52, y, LIST.w - 102, ROW_H));
+        let w = c.text(r.title, FONT, LIST.x + 52, y + 3, Rgba::gray(232), Hint::ClearType);
         let sub = if r.album.is_empty() { r.artist.to_string() } else { format!("{} · {}", r.artist, r.album) };
-        c.text(&sub, FONT, LIST.x + 52 + w, y + 3, Rgba::gray(140), Hint::ClearType);
+        c.text(&sub, FONT, LIST.x + 64 + w, y + 3, Rgba::gray(140), Hint::ClearType);
         c.pop_clip();
         let dw = text::measure(r.duration, FONT).0 as i32;
         c.text(r.duration, FONT, LIST.right() - dw - 8, y + 3, Rgba::gray(170), Hint::ClearType);

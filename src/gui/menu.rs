@@ -56,6 +56,7 @@ pub enum Act {
     LyricDir,
     SetDevice(String),
     SetProxy(crate::config::ProxyKind),
+    SetLyricSource(crate::lyrics::online::Provider),
     DeskToggle,
     DeskLock,
     DeskTwoLines,

@@ -153,6 +153,11 @@ impl App {
                 let cur = self.player.core.lock().settings.network.kind;
                 crate::config::ProxyKind::ALL.iter().map(|k| check(model::proxy_label(*k), None, *k == cur, Act::SetProxy(*k))).collect()
             }
+            ChoiceKind::LyricSource => {
+                use crate::lyrics::online::Provider;
+                let cur = self.player.core.lock().settings.lyrics.source;
+                Provider::ALL.iter().map(|p| check(p.label(), None, *p == cur, Act::SetLyricSource(*p))).collect()
+            }
         };
         self.popup(items);
     }

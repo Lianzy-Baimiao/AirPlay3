@@ -12,7 +12,9 @@ use crate::skin::icons;
 pub enum AsyncMsg {
     Files(Vec<std::path::PathBuf>, crate::library::ListId),
     /// 歌词搜索结果：(结果, 是否放宽为只按标题)
-    LyricResults(u64, Result<(Vec<crate::lyrics::lrclib::Record>, bool), String>),
+    LyricResults(u64, Result<(Vec<crate::lyrics::online::Candidate>, bool), String>),
+    /// 搜索窗口下载并保存歌词的结果
+    LyricSaved(crate::library::TrackId, Result<std::path::PathBuf, String>),
     LyricFile(crate::library::TrackId, std::path::PathBuf),
     CoverFile(crate::library::TrackId, std::path::PathBuf),
     /// 手动下载专辑图片的结果：Ok(是否找到)
@@ -220,6 +222,16 @@ impl App {
                     s.win.dirty = true;
                 }
             }
+            Act::SetLyricSource(src) => {
+                let mut g = p.core.lock();
+                g.settings.lyrics.source = src;
+                g.touch_settings();
+                drop(g);
+                p.save(false);
+                if let Some(s) = self.settings_win.as_mut() {
+                    s.win.dirty = true;
+                }
+            }
             Act::SetProxy(k) => {
                 let mut g = p.core.lock();
                 g.settings.network.kind = k;
@@ -352,6 +364,12 @@ impl App {
                 AsyncMsg::LyricResults(seq, r) => {
                     self.on_lyric_results(seq, r);
                     self.paint_search();
+                }
+                AsyncMsg::LyricSaved(id, r) => {
+                    self.on_lyric_saved(id, r);
+                    if self.search.is_some() {
+                        self.paint_search();
+                    }
                 }
                 AsyncMsg::LyricDir(d) => {
                     let mut g = self.player.core.lock();

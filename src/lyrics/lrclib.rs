@@ -11,18 +11,23 @@ use crate::config::{NetworkSettings, ProxyKind};
 
 const API: &str = "https://lrclib.net/api";
 
+/// 字段缺失或为 null 都取默认值（`#[serde(default)]` 只管缺失；LRCLIB 有的记录 duration 是 null，会让整次搜索解析失败）
+fn or_default<'de, D: serde::Deserializer<'de>, T: Default + Deserialize<'de>>(d: D) -> Result<T, D::Error> {
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Record {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_default")]
     pub track_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_default")]
     pub artist_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_default")]
     pub album_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_default")]
     pub duration: f64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_default")]
     pub instrumental: bool,
     pub plain_lyrics: Option<String>,
     pub synced_lyrics: Option<String>,
@@ -191,6 +196,13 @@ pub fn save(rec: &Record, dir: &Path, title: &str, artist: &str) -> std::io::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn null_fields() {
+        let v: Vec<Record> = serde_json::from_str(r#"[{"trackName":"冬眠","artistName":null,"duration":null,"instrumental":null,"syncedLyrics":"[00:01.00]a"},{"trackName":"x","duration":196.2}]"#).unwrap();
+        assert_eq!((v[0].duration, v[0].artist_name.as_str(), v[0].instrumental), (0.0, "", false));
+        assert_eq!(v[1].duration, 196.2);
+    }
 
     #[test]
     fn busy_retry_policy() {

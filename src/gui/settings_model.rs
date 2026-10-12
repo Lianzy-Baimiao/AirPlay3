@@ -52,6 +52,7 @@ pub enum Widget {
 pub enum ChoiceKind {
     Device,
     ProxyKind,
+    LyricSource,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -157,8 +158,9 @@ pub fn widgets(tab: usize, s: &Settings, device_name: &str) -> Vec<Widget> {
             Check(Key::ShowCover, "显示图片"),
             Check(Key::EmbeddedPic, "显示音乐文件内嵌图片"),
             Check(Key::LocalPic, "显示本地默认图片"),
-            Check(Key::AutoDownload, "启用自动下载歌词 (LRCLIB)"),
-            Check(Key::AlbumPic, "下载专辑图片 (iTunes)"),
+            Choice("歌词来源", s.lyrics.source.label().into(), ChoiceKind::LyricSource),
+            Check(Key::AutoDownload, "启用自动下载歌词"),
+            Check(Key::AlbumPic, "下载专辑图片 (LrcAPI / iTunes)"),
             Check(Key::TaskbarLyric, "在任务栏显示歌词"),
             Check(Key::UseCustomDir, "使用自定义歌词目录 (文件名格式 = \"艺人 - 曲目.lrc\")"),
             Text(Field::CustomDir, "歌词目录"),
