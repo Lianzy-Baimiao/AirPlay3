@@ -69,6 +69,7 @@ pub fn after_create(start_hidden: bool) {
         #[cfg(debug_assertions)]
         match std::env::var("AIRPLAY3_TEST_OPEN").as_deref() {
             Ok("settings") => app.open_settings(),
+            Ok(s) if s.starts_with("settings:") => app.act(super::menu::Act::SettingsTab(s[9..].parse().unwrap_or(0))),
             Ok("minibar") => app.toggle_minibar(),
             Ok("search") => app.open_lyric_search(),
             _ => {}

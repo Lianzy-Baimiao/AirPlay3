@@ -164,6 +164,10 @@ impl App {
         for (_, w) in &mut self.wins {
             w.dirty = true;
         }
+        // 配置窗口里的值可能被菜单、拖动改了
+        if let Some(s) = self.settings_win.as_mut() {
+            s.win.dirty = true;
+        }
     }
 
     /// 把所有需要重绘的窗口画好并提交

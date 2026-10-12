@@ -15,6 +15,8 @@ pub struct SettingsWin {
     pub win: Popup,
     pub tab: usize,
     pub focus: Option<usize>,
+    /// 正在编辑的输入框（第几项, 已输入的文字）：数字输到一半（如 "-"）时照样显示，解析得了才写进设置
+    pub edit: Option<(usize, String)>,
     pub hover: Option<usize>,
     pub hover_tab: Option<usize>,
     pub capturing: Option<usize>,
@@ -32,7 +34,7 @@ impl App {
         let (x, y) = Popup::centered(sp::W, sp::H);
         let win = Popup::new(x, y, sp::W, sp::H, Some(self.bar_hwnd()), "配置");
         let devices = crate::audio::devices::list_devices();
-        self.settings_win = Some(SettingsWin { win, tab: 0, focus: None, hover: None, hover_tab: None, capturing: None, devices, status: String::new(), drag: None });
+        self.settings_win = Some(SettingsWin { win, tab: 0, focus: None, edit: None, hover: None, hover_tab: None, capturing: None, devices, status: String::new(), drag: None });
         self.paint_settings();
         if let Some(s) = &self.settings_win {
             s.win.show(true);
@@ -50,11 +52,15 @@ impl App {
         };
         model::widgets(sw.tab, s, &dev)
             .into_iter()
-            .map(|w| {
+            .enumerate()
+            .map(|(i, w)| {
                 let (on, val) = match &w {
                     Widget::Check(k, _) => (model::get(s, *k), String::new()),
                     Widget::Choice(_, v, _) => (false, v.clone()),
-                    Widget::Text(f, _) => (false, model::text(s, *f)),
+                    Widget::Text(f, _) => match &sw.edit {
+                        Some((j, buf)) if *j == i => (false, if *f == model::Field::ProxyPass { "*".repeat(buf.chars().count()) } else { buf.clone() }),
+                        _ => (false, model::text(s, *f)),
+                    },
                     Widget::Hotkey(a) => {
                         let text = s.hotkeys.combo(*a).map_or("未设置".to_string(), |c| crate::platform::hotkeys::combo_text(&c));
                         // 注册失败（被其它程序占用）的热键直接标出来，不用等改键时才知道
@@ -108,7 +114,8 @@ impl App {
             }
             Key::HotkeysEnabled => self.register_hotkeys(),
             Key::ShowLyric | Key::ShowCover | Key::EmbeddedPic | Key::LocalPic | Key::AutoDownload | Key::UseCustomDir => p.refresh_now_playing(&self.now, true),
-            Key::TaskbarLyric => self.sync_taskbar_lyric(),
+            Key::TaskbarLyric | Key::TaskbarTwoLines => self.sync_taskbar_lyric(),
+            Key::DeskLyric | Key::DeskLyricLocked => self.sync_desk_lyric(),
             _ => {}
         }
         p.save(false);
@@ -136,6 +143,7 @@ impl App {
                 crate::platform::shell::unregister_associations(&exts);
                 self.set_status("已取消关联");
             }
+            Btn::ResetTaskbarPos => self.act(Act::TaskbarReset),
         }
         p.save(false);
     }
@@ -157,6 +165,10 @@ impl App {
                 use crate::lyrics::online::Provider;
                 let cur = self.player.core.lock().settings.lyrics.source;
                 Provider::ALL.iter().map(|p| check(p.label(), None, *p == cur, Act::SetLyricSource(*p))).collect()
+            }
+            ChoiceKind::TaskbarAlign => {
+                let cur = self.player.core.lock().settings.taskbar_lyric.align;
+                (0..3u8).map(|a| check(model::taskbar_align_label(a), None, a == cur, Act::TaskbarAlign(a))).collect()
             }
         };
         self.popup(items);
@@ -206,7 +218,7 @@ impl App {
             WM_LBUTTONDOWN => {
                 if let Some(t) = (0..model::TABS.len()).find(|i| sp::tab_rect(*i).contains(x, y)) {
                     let sw = self.settings_win.as_mut()?;
-                    (sw.tab, sw.focus, sw.capturing, sw.hover) = (t, None, None, None);
+                    (sw.tab, sw.focus, sw.edit, sw.capturing, sw.hover) = (t, None, None, None, None);
                     sw.status.clear();
                 } else if y < 20 && x > sp::W - 26 {
                     return self.close_settings();
@@ -215,6 +227,10 @@ impl App {
                     if let Some(sw) = self.settings_win.as_mut() {
                         sw.focus = None;
                         sw.capturing = None;
+                        // 点回正在编辑的输入框时保留已输入的文字
+                        if sw.edit.as_ref().is_some_and(|e| e.0 != i) {
+                            sw.edit = None;
+                        }
                     }
                     match w {
                         Widget::Check(k, _) => self.toggle_key(k),
@@ -226,6 +242,7 @@ impl App {
                     }
                 } else {
                     let sw = self.settings_win.as_mut()?;
+                    (sw.focus, sw.edit) = (None, None);
                     let (cx, cy) = super::resize::cursor();
                     sw.drag = Some((cx - sw.win.pos.0, cy - sw.win.pos.1));
                     unsafe { SetCapture(hwnd) };
@@ -239,31 +256,43 @@ impl App {
                 }
             }
             WM_CHAR => {
-                let sw = self.settings_win.as_ref()?;
-                let Some(i) = sw.focus else { return Some(LRESULT(0)) };
+                let Some(i) = self.settings_win.as_ref()?.focus else { return Some(LRESULT(0)) };
                 let Widget::Text(f, _) = items.get(i)?.0 else { return Some(LRESULT(0)) };
-                let mut g = self.player.core.lock();
-                let mut cur = match f {
-                    model::Field::ProxyPass => g.settings.network.pass.clone(),
-                    _ => model::text(&g.settings, f),
+                // 第一次按键时从设置里取出当前内容，之后都在编辑缓冲里改
+                let mut cur = match &self.settings_win.as_ref()?.edit {
+                    Some((j, buf)) if *j == i => buf.clone(),
+                    _ => model::raw_text(&self.player.core.lock().settings, f),
                 };
                 match wp.0 as u32 {
                     8 => {
                         cur.pop();
                     }
                     13 | 27 => {
-                        drop(g);
-                        self.settings_win.as_mut()?.focus = None;
-                        self.settings_win.as_mut()?.win.dirty = true;
+                        let sw = self.settings_win.as_mut()?;
+                        (sw.focus, sw.edit) = (None, None);
+                        sw.win.dirty = true;
+                        self.player.save(false);
                         return Some(LRESULT(0));
                     }
+                    // 数字框只接受数字、负号、小数点
+                    c if f.numeric() && !char::from_u32(c).is_some_and(|ch| ch.is_ascii_digit() || ch == '-' || ch == '.') => return Some(LRESULT(0)),
                     c if c >= 32 => cur.extend(char::from_u32(c)),
                     _ => {}
                 }
-                model::set_text(&mut g.settings, f, &cur);
-                g.touch_settings();
-                drop(g);
-                self.settings_win.as_mut()?.win.dirty = true;
+                let applied = {
+                    let mut g = self.player.core.lock();
+                    let ok = model::set_text(&mut g.settings, f, &cur);
+                    if ok {
+                        g.touch_settings();
+                    }
+                    ok
+                };
+                let sw = self.settings_win.as_mut()?;
+                sw.edit = Some((i, cur));
+                sw.win.dirty = true;
+                if applied && f.taskbar() {
+                    self.sync_taskbar_lyric();
+                }
             }
             WM_KEYDOWN | WM_SYSKEYDOWN => {
                 let Some(i) = self.settings_win.as_ref()?.capturing else { return None };

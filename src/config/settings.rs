@@ -403,15 +403,26 @@ pub struct TaskbarLyricSettings {
     pub visible: bool,
     /// 0 = 靠左（开始按钮右侧），1 = 居中，2 = 靠右（通知区域左侧）
     pub align: u8,
-    /// 相对对齐位置的水平偏移（像素，可拖动调整）
+    /// 相对对齐位置的水平偏移（像素，正值向右；可拖动调整）
     pub offset: i32,
+    /// 相对垂直居中的偏移（像素，正值向下；可拖动调整）
+    pub offset_y: i32,
     pub width: i32,
     pub font_size: f32,
+    /// 第二行显示下一句（关掉后只显示当前句，上下可移动的范围更大）
+    pub two_lines: bool,
+}
+
+impl TaskbarLyricSettings {
+    /// 各对齐方式的默认水平偏移（靠右时离通知区域留一点空）
+    pub fn default_offset(align: u8) -> i32 {
+        if align == 2 { -20 } else { 0 }
+    }
 }
 
 impl Default for TaskbarLyricSettings {
     fn default() -> Self {
-        Self { visible: false, align: 2, offset: -20, width: 360, font_size: 14.0 }
+        Self { visible: false, align: 2, offset: -20, offset_y: 0, width: 360, font_size: 14.0, two_lines: true }
     }
 }
 

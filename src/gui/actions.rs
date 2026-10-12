@@ -265,17 +265,18 @@ impl App {
                     item("关闭桌面歌词", Act::DeskToggle),
                 ]);
             }
-            Act::TaskbarToggle | Act::TaskbarAlign(_) | Act::TaskbarFont(_) => {
+            Act::TaskbarToggle | Act::TaskbarAlign(_) | Act::TaskbarFont(_) | Act::TaskbarReset | Act::TaskbarTwoLines => {
                 {
+                    use crate::config::TaskbarLyricSettings as T;
                     let mut g = p.core.lock();
                     let t = &mut g.settings.taskbar_lyric;
                     match a {
                         Act::TaskbarToggle => t.visible = !t.visible,
-                        Act::TaskbarAlign(al) => {
-                            t.align = al;
-                            t.offset = if al == 2 { -20 } else { 0 };
-                        }
+                        // 换对齐方式时水平偏移回到默认，垂直偏移保留
+                        Act::TaskbarAlign(al) => (t.align, t.offset) = (al, T::default_offset(al)),
                         Act::TaskbarFont(d) => t.font_size = (t.font_size + d).clamp(9.0, 24.0),
+                        Act::TaskbarReset => (t.offset, t.offset_y) = (T::default_offset(t.align), 0),
+                        Act::TaskbarTwoLines => t.two_lines = !t.two_lines,
                         _ => {}
                     }
                     g.touch_settings();
@@ -284,6 +285,13 @@ impl App {
                 p.save(false);
             }
             Act::TaskbarMenu => self.popup(self.taskbar_menu()),
+            Act::SettingsTab(t) => {
+                self.open_settings();
+                if let Some(s) = self.settings_win.as_mut() {
+                    (s.tab, s.focus, s.edit, s.capturing, s.hover) = (t.min(super::settings_model::TABS.len() - 1), None, None, None, None);
+                    s.win.dirty = true;
+                }
+            }
             Act::Minibar => self.toggle_minibar(),
             Act::LyricDir => {
                 let dir = p.core.lock().dirs.lyric_dir();

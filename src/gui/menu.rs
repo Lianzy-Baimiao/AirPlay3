@@ -65,6 +65,11 @@ pub enum Act {
     TaskbarMenu,
     TaskbarAlign(u8),
     TaskbarFont(f32),
+    /// 任务栏歌词回到当前对齐方式的默认位置
+    TaskbarReset,
+    TaskbarTwoLines,
+    /// 打开「配置」的某个分页
+    SettingsTab(usize),
     Minibar,
 }
 

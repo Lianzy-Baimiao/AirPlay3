@@ -3,7 +3,7 @@
 use super::frame;
 use super::search::{button, field};
 use crate::gui::canvas::{Canvas, R, Rgba};
-use crate::gui::settings_model::{TABS, Widget};
+use crate::gui::settings_model::{TAB_DESK, TAB_HOTKEYS, TABS, Widget};
 use crate::gui::text::{self, Font, Hint};
 use crate::skin::icons;
 
@@ -14,12 +14,18 @@ const TAB_Y: i32 = 26;
 const TOP: i32 = 62;
 pub const ORANGE: Rgba = Rgba(234, 115, 43, 255);
 
+/// 分页按钮：7 个分页均分 (W - 24) 的宽度
 pub fn tab_rect(i: usize) -> R {
-    R::new(12 + i as i32 * 74, TAB_Y, 72, 24)
+    let slot = (W - 24) / TABS.len() as i32;
+    R::new(12 + i as i32 * slot, TAB_Y, slot - 2, 24)
 }
 
 pub fn row_h(tab: usize) -> i32 {
-    if tab == 4 { 23 } else { 28 }
+    match tab {
+        TAB_HOTKEYS => 23,
+        TAB_DESK => 25,
+        _ => 28,
+    }
 }
 
 /// 第 i 个设置项的区域
