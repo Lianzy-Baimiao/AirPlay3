@@ -1,5 +1,6 @@
 //! 媒体文件相关：支持的格式、标签读取、封面、CUE。
 
+pub mod artist;
 pub mod artwork;
 pub mod cover;
 pub mod cue;

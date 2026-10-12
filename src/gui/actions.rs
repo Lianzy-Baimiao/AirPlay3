@@ -18,7 +18,7 @@ pub enum AsyncMsg {
     LyricFile(crate::library::TrackId, std::path::PathBuf),
     CoverFile(crate::library::TrackId, std::path::PathBuf),
     /// 手动下载专辑图片的结果：Ok(是否找到)
-    CoverDone(Result<bool, String>),
+    CoverDone(Result<crate::player::nowplaying::CoverFound, String>),
     LyricDir(std::path::PathBuf),
 }
 
@@ -407,10 +407,12 @@ impl App {
                     self.dirty(Pane::Cover);
                 }
                 AsyncMsg::CoverDone(r) => {
+                    use crate::player::nowplaying::CoverFound;
                     let msg = match r {
-                        Ok(true) => "专辑图片已下载并保存到本地".to_string(),
-                        Ok(false) => "没有找到这首歌的专辑图片".to_string(),
-                        Err(e) => format!("下载专辑图片失败：{e}"),
+                        Ok(CoverFound::Album) => "专辑图片已下载并保存到本地".to_string(),
+                        Ok(CoverFound::Artist) => "没有找到专辑图片，已下载艺人图片".to_string(),
+                        Ok(CoverFound::None) => "没有找到这首歌的专辑图片和艺人图片".to_string(),
+                        Err(e) => format!("下载图片失败：{e}"),
                     };
                     self.ui.cover_status = Some((msg, std::time::Instant::now()));
                     self.dirty(Pane::Cover);

@@ -75,6 +75,11 @@ impl DataDirs {
         self.cache_dir().join("COVER")
     }
 
+    /// 艺人图片缓存（按艺人，同一艺人的歌共用）
+    pub fn artist_dir(&self) -> PathBuf {
+        self.cache_dir().join("ARTIST")
+    }
+
     /// 是否是 exe 旁的便携目录。
     pub fn is_portable(&self) -> bool {
         self.root == crate::util::exe_dir().join(PORTABLE_DIR)

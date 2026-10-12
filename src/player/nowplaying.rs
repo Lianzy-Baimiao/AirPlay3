@@ -1,6 +1,6 @@
 //! 正在播放：标题、歌词、封面。曲目切换时后台加载（主窗口、桌面歌词、系统媒体控制共用）。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -49,6 +49,15 @@ impl NowPlaying {
     }
 }
 
+/// 手动下载图片的结果
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoverFound {
+    Album,
+    /// 没有专辑图片，用了艺人图片
+    Artist,
+    None,
+}
+
 /// 歌词/图片关联方式（原版"取消歌词关联"、"取消图片关联"）
 pub enum Link {
     Auto,
@@ -70,11 +79,52 @@ fn load_lyrics(t: &Track, dirs: &[PathBuf]) -> Option<(Lyrics, LyricSource)> {
     crate::lyrics::load(&req)
 }
 
-fn load_cover(t: &Track, ls: &LyricSettings) -> Option<CoverImage> {
-    let req = CoverRequest { audio: &t.path, linked: t.cover_path.as_deref(), unlinked: t.cover_unlinked, embedded: ls.embedded_pic, local: ls.local_pic };
-    let raw = find_cover(&req)?;
+fn cover_image(raw: Vec<u8>) -> Option<CoverImage> {
     let (w, h, rgba) = decode_rgba(&raw, 640)?;
     Some(CoverImage { size: [w as usize, h as usize], rgba: Arc::new(rgba), raw: Arc::new(raw) })
+}
+
+/// 专辑图片（内嵌 / 本地 / 关联的）；没有时用已下载的艺人图片。返回 (图片, 是否是专辑图片)
+fn load_cover(t: &Track, ls: &LyricSettings, artist_dir: &Path) -> (Option<CoverImage>, bool) {
+    let req = CoverRequest { audio: &t.path, linked: t.cover_path.as_deref(), unlinked: t.cover_unlinked, embedded: ls.embedded_pic, local: ls.local_pic };
+    if let Some(img) = find_cover(&req).and_then(cover_image) {
+        return (Some(img), true);
+    }
+    // 取消了图片关联的歌不显示任何图片
+    if t.cover_unlinked {
+        return (None, false);
+    }
+    (crate::media::artist::cached(artist_dir, &t.artist).flatten().and_then(cover_image), false)
+}
+
+/// 下载（或从缓存取）艺人图片，正在播放这首且还没有图片时显示。返回是否找到
+fn fetch_artist_pic(p: &Player, now: &SharedNow, t: &Track, net: &crate::config::NetworkSettings, dir: &Path, manual: bool) -> Result<bool, String> {
+    let Some(bytes) = crate::media::artist::find(net, dir, &t.artist, manual)? else { return Ok(false) };
+    let img = cover_image(bytes).ok_or("图片无法解码")?;
+    {
+        let mut n = now.lock();
+        if n.track == Some(t.id) && (manual || n.cover.is_none()) {
+            n.cover = Some(img);
+            n.rev += 1;
+        }
+    }
+    p.repaint();
+    Ok(true)
+}
+
+/// 「下载后自动修改歌曲信息」：歌名一致、时长相差 3 秒内时，补全空着的艺人、专辑。
+/// 已有的信息不改（上传者的翻唱常把艺人写成上传者，改了反而错），只改曲库、不改音乐文件
+pub fn fill_info(t: &Track, c: &crate::lyrics::online::Candidate) -> Option<(Option<String>, Option<String>)> {
+    use crate::lyrics::query::clean_title;
+    use crate::util::text::normalize_key;
+    let same_title = normalize_key(&clean_title(&t.display_title())) == normalize_key(&clean_title(&c.title));
+    let same_len = t.duration > 0.0 && c.duration > 0.0 && (t.duration - c.duration).abs() <= 3.0;
+    if !same_title || !same_len {
+        return None;
+    }
+    let artist = (t.artist.trim().is_empty() && !c.artist.trim().is_empty()).then(|| c.artist.trim().to_string());
+    let album = (t.album.trim().is_empty() && !c.album.trim().is_empty()).then(|| c.album.trim().to_string());
+    (artist.is_some() || album.is_some()).then_some((artist, album))
 }
 
 /// 下载的歌词保存位置：设置了自定义歌词目录时存到那里，否则存到程序的 LYRIC 目录
@@ -125,8 +175,8 @@ impl Player {
             *n = NowPlaying { rev: n.rev + 1, ..Default::default() };
             return;
         };
-        let (dirs, ls, net, lyric_dir, cover_dir) =
-            (g.lyric_dirs(), g.settings.lyrics.clone(), g.settings.network.clone(), save_lyric_dir(&g), g.dirs.cover_dir());
+        let (dirs, ls, net, lyric_dir, cover_dir, artist_dir) =
+            (g.lyric_dirs(), g.settings.lyrics.clone(), g.settings.network.clone(), save_lyric_dir(&g), g.dirs.cover_dir(), g.dirs.artist_dir());
         drop(g);
         {
             let mut n = now.lock();
@@ -151,7 +201,7 @@ impl Player {
             let lyr = load_lyrics(&t, &dirs);
             let found = lyr.is_some();
             set_lyrics(&now, t.id, lyr);
-            let cover = load_cover(&t, &ls);
+            let (cover, is_album) = load_cover(&t, &ls, &artist_dir);
             {
                 let mut n = now.lock();
                 if n.track == Some(t.id) {
@@ -160,8 +210,8 @@ impl Player {
                     n.rev += 1;
                 }
             }
-            let no_cover = now.lock().cover.is_none();
             p.repaint();
+            let mut t = t;
             if !found && ls.auto_download && !t.lyric_unlinked {
                 match crate::lyrics::online::best_match(&net, ls.source, &t.display_title(), &t.artist, t.duration) {
                     Ok(Some((c, text))) => match crate::lyrics::online::save(&text, &c, &lyric_dir, &t.display_title(), &t.artist) {
@@ -169,6 +219,12 @@ impl Player {
                         Ok(path) => {
                             p.link_lyric_file(t.id, &path);
                             set_lyrics(&now, t.id, crate::lyrics::read_lrc_file(&path).map(|l| (l, LyricSource::File(path))));
+                            if ls.auto_tag {
+                                if let Some((artist, album)) = p.fill_track_info(t.id, &c, &now) {
+                                    // 补全的艺人马上用来找艺人图片
+                                    (t.artist, t.album) = (artist.unwrap_or(t.artist), album.unwrap_or(t.album));
+                                }
+                            }
                             p.repaint();
                         }
                         Err(e) => log::warn!("保存歌词失败: {e}"),
@@ -177,12 +233,53 @@ impl Player {
                     Err(e) => log::info!("自动下载歌词失败: {e}"),
                 }
             }
-            if no_cover && ls.auto_download && ls.album_pic && !t.cover_unlinked {
-                if let Err(e) = fetch_cover(&p, &now, &t, &net, &cover_dir, false) {
-                    log::info!("自动下载专辑图片失败: {e}");
+            // 没有专辑图片（正在显示的可能是艺人图片）：先下载专辑图片，找不到再下载艺人图片
+            if !is_album && ls.auto_download && !t.cover_unlinked {
+                let album = ls.album_pic
+                    && fetch_cover(&p, &now, &t, &net, &cover_dir, false).unwrap_or_else(|e| {
+                        log::info!("自动下载专辑图片失败: {e}");
+                        false
+                    });
+                if !album && ls.artist_pic {
+                    if let Err(e) = fetch_artist_pic(&p, &now, &t, &net, &artist_dir, false) {
+                        log::info!("自动下载艺人图片失败: {e}");
+                    }
                 }
             }
         });
+    }
+
+    /// 「下载后自动修改歌曲信息」：用下载歌词的结果补全空着的艺人、专辑（只改曲库），同时更新正在播放的信息。
+    /// 返回补全的 (艺人, 专辑)
+    pub fn fill_track_info(&self, id: TrackId, c: &crate::lyrics::online::Candidate, now: &SharedNow) -> Option<(Option<String>, Option<String>)> {
+        let filled = {
+            let mut g = self.core.lock();
+            let t = g.lib.track(id)?.clone();
+            let f = fill_info(&t, c)?;
+            let tr = g.lib.track_mut(id)?;
+            if let Some(a) = &f.0 {
+                tr.artist = a.clone();
+            }
+            if let Some(a) = &f.1 {
+                tr.album = a.clone();
+            }
+            f
+        };
+        log::info!("下载歌词后补全歌曲信息: 艺人 {:?} 专辑 {:?}", filled.0, filled.1);
+        {
+            let mut n = now.lock();
+            if n.track == Some(id) {
+                if let Some(a) = &filled.0 {
+                    n.artist = a.clone();
+                }
+                if let Some(a) = &filled.1 {
+                    n.album = a.clone();
+                }
+                n.rev += 1;
+            }
+        }
+        self.repaint();
+        Some(filled)
     }
 
     /// 关联歌词文件但不重新加载（后台下载完成时用）
@@ -193,13 +290,23 @@ impl Player {
     }
 
     /// 手动「下载专辑图片」：在调用线程上联网，找到后保存到本地并关联。返回是否找到。
-    pub fn download_cover(&self, id: TrackId, now: &SharedNow) -> Result<bool, String> {
-        let (t, net, dir) = {
+    /// 手动「下载专辑图片」：先找专辑图片，找不到再找艺人图片
+    pub fn download_cover(&self, id: TrackId, now: &SharedNow) -> Result<CoverFound, String> {
+        let (t, net, dir, artist_dir) = {
             let g = self.core.lock();
-            let Some(t) = g.lib.track(id).cloned() else { return Ok(false) };
-            (t, g.settings.network.clone(), g.dirs.cover_dir())
+            let Some(t) = g.lib.track(id).cloned() else { return Ok(CoverFound::None) };
+            (t, g.settings.network.clone(), g.dirs.cover_dir(), g.dirs.artist_dir())
         };
-        fetch_cover(self, now, &t, &net, &dir, true)
+        let album = fetch_cover(self, now, &t, &net, &dir, true);
+        if let Ok(true) = album {
+            return Ok(CoverFound::Album);
+        }
+        match fetch_artist_pic(self, now, &t, &net, &artist_dir, true) {
+            Ok(true) => Ok(CoverFound::Artist),
+            Ok(false) => album.map(|_| CoverFound::None),
+            // 两个都失败时报专辑图片的错误
+            Err(e) => Err(album.err().unwrap_or(e)),
+        }
     }
 
     pub fn set_lyric_link(&self, id: TrackId, link: Link, now: &SharedNow) {
@@ -238,5 +345,30 @@ impl Player {
         }
         drop(n);
         self.repaint();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lyrics::online::{Candidate, Provider};
+
+    fn cand(title: &str, artist: &str, album: &str, d: f64) -> Candidate {
+        Candidate { provider: Provider::LrcApi, key: String::new(), title: title.into(), artist: artist.into(), album: album.into(), duration: d, lyrics: None, cover: String::new() }
+    }
+
+    #[test]
+    fn fill_only_empty_fields() {
+        let t = Track { path: "a/01. 冬眠.mp3".into(), duration: 196.0, ..Default::default() };
+        // 没有标签的文件（标题取自文件名，带曲目号）：补全艺人和专辑
+        assert_eq!(fill_info(&t, &cand("冬眠", "严浩翔", "冬眠", 196.2)), Some((Some("严浩翔".into()), Some("冬眠".into()))));
+        // 已有的艺人不改（上传者翻唱），只补专辑
+        let t2 = Track { title: "冬眠【六倍音质】".into(), artist: "起点音乐".into(), duration: 196.0, ..Default::default() };
+        assert_eq!(fill_info(&t2, &cand("冬眠", "严浩翔", "冬眠", 197.0)), Some((None, Some("冬眠".into()))));
+        // 时长差太多、歌名不同、没有可补的：都不改
+        assert_eq!(fill_info(&t, &cand("冬眠", "严浩翔", "冬眠", 230.0)), None);
+        assert_eq!(fill_info(&t, &cand("夏眠", "严浩翔", "冬眠", 196.0)), None);
+        let full = Track { title: "冬眠".into(), artist: "a".into(), album: "b".into(), duration: 196.0, ..Default::default() };
+        assert_eq!(fill_info(&full, &cand("冬眠", "严浩翔", "冬眠", 196.0)), None);
     }
 }

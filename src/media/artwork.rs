@@ -68,7 +68,7 @@ fn big_url(u: &str) -> String {
     u.replace("100x100bb", "600x600bb")
 }
 
-fn download(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn download(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
     let mut img = agent.get(url).call().map_err(|e| e.to_string())?;
     if img.status().as_u16() != 200 {
         return Err(format!("下载图片失败：HTTP {}", img.status().as_u16()));

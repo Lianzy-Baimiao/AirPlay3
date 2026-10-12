@@ -69,7 +69,8 @@ pub fn agent(net: &NetworkSettings) -> Result<ureq::Agent, String> {
         .provider(ureq::tls::TlsProvider::NativeTls)
         .root_certs(ureq::tls::RootCerts::PlatformVerifier)
         .build();
-    let ua = concat!("AirPlay3-rs/", env!("CARGO_PKG_VERSION"), " (local music player revival)");
+    // 带上项目地址：维基百科等接口要求 User-Agent 能联系到作者
+    let ua = concat!("AirPlay3-rs/", env!("CARGO_PKG_VERSION"), " (local music player revival; https://github.com/Lianzy-Baimiao/AirPlay3)");
     let cfg = ureq::Agent::config_builder()
         .tls_config(tls)
         .proxy(proxy)

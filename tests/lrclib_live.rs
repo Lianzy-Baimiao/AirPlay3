@@ -73,3 +73,26 @@ fn online_sources_live() {
     }
     assert!(found >= 3, "只找到 {found} 首");
 }
+
+/// 艺人图片：Deezer / 维基百科（中国大陆需要代理），按艺人缓存
+#[test]
+#[ignore]
+fn artist_pic_live() {
+    let net = airplay3::config::NetworkSettings::default();
+    let dir = std::env::temp_dir().join("ap3_artist_live");
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut found = 0;
+    for a in ["谢春花", "周杰伦", "告五人", "Coldplay", "起点音乐"] {
+        let t = std::time::Instant::now();
+        let r = airplay3::media::artist::find(&net, &dir, a, true);
+        println!("{a} -> {:?} {:?}", r.as_ref().map(|b| b.as_ref().map(|b| b.len())), t.elapsed());
+        if let Ok(Some(b)) = &r {
+            assert!(b.starts_with(&[0xFF, 0xD8]) || b.starts_with(b"\x89PNG"), "{a} 不是图片");
+            found += 1;
+        }
+    }
+    // 第二次从缓存取
+    assert!(matches!(airplay3::media::artist::cached(&dir, "谢春花"), Some(Some(_))));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(found >= 3, "只找到 {found} 位");
+}

@@ -95,11 +95,25 @@ fn s(v: &Value) -> String {
     v.as_str().unwrap_or_default().to_string()
 }
 
+/// LrcAPI 的搜索地址：「配置 → 网络连接」里填了自建地址时用它（填到域名 / 端口即可，也可以带 /jsonapi），否则用公开实例
+fn lrcapi_url(net: &NetworkSettings) -> String {
+    let base = net.lrcapi_url.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return LRCAPI.to_string();
+    }
+    let base = if base.contains("://") { base.to_string() } else { format!("http://{base}") };
+    if base.ends_with("/jsonapi") { base } else { format!("{base}/jsonapi") }
+}
+
 /// LrcAPI 搜索（/jsonapi）。一条结果同时带歌词和专辑图片；搜不到时返回 404。
 fn search_lrcapi(net: &NetworkSettings, title: &str, artist: &str) -> Result<Vec<Candidate>, String> {
     let agent = super::lrclib::agent(net)?;
-    let mut resp = agent
-        .get(LRCAPI)
+    let mut req = agent.get(lrcapi_url(net));
+    // 自建实例开了 --auth 时要带上密钥
+    if !net.lrcapi_key.trim().is_empty() {
+        req = req.header("Authorization", net.lrcapi_key.trim());
+    }
+    let mut resp = req
         .query("title", title)
         .query("artist", artist)
         .query("album", "")
@@ -110,6 +124,7 @@ fn search_lrcapi(net: &NetworkSettings, title: &str, artist: &str) -> Result<Vec
     let v: Value = match resp.status().as_u16() {
         200 => serde_json::from_str(&resp.body_mut().with_config().limit(MAX_BODY).read_to_string().map_err(|e| e.to_string())?).map_err(|e| format!("解析失败: {e}"))?,
         404 => return Ok(Vec::new()),
+        401 | 403 => return Err("LrcAPI 访问密钥不对（「配置 → 网络连接」）".into()),
         st => return Err(format!("HTTP {st}")),
     };
     Ok(v.as_array()
@@ -337,6 +352,12 @@ mod tests {
         );
         assert_eq!(cover_url("http://p2.music.126.net/abc==/109.jpg"), "https://p2.music.126.net/abc==/109.jpg?param=600y600");
         assert_eq!(cover_url("https://example.com/a.jpg"), "https://example.com/a.jpg");
+        // 自建 LrcAPI 地址：填到域名 / 端口即可，也可以带 /jsonapi
+        let net = |u: &str| NetworkSettings { lrcapi_url: u.into(), ..Default::default() };
+        assert_eq!(lrcapi_url(&net("")), LRCAPI);
+        assert_eq!(lrcapi_url(&net("192.168.1.5:28883")), "http://192.168.1.5:28883/jsonapi");
+        assert_eq!(lrcapi_url(&net("https://lrc.example.com/")), "https://lrc.example.com/jsonapi");
+        assert_eq!(lrcapi_url(&net("https://lrc.example.com/jsonapi")), "https://lrc.example.com/jsonapi");
     }
 
     #[test]

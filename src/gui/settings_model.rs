@@ -24,6 +24,8 @@ pub enum Key {
     LocalPic,
     AutoDownload,
     AlbumPic,
+    ArtistPic,
+    AutoTag,
     UseCustomDir,
     ProxyEnabled,
     HotkeysEnabled,
@@ -48,12 +50,20 @@ pub enum Field {
     TaskbarWidth,
     /// 桌面歌词字号
     DeskFont,
+    /// 自建 LrcAPI 的地址、访问密钥
+    LrcApiUrl,
+    LrcApiKey,
 }
 
 impl Field {
     /// 数字输入框：输入过程中（如只打了 "-"）解析不了时先不改设置
     pub fn numeric(self) -> bool {
         matches!(self, Field::ProxyPort | Field::TaskbarX | Field::TaskbarY | Field::TaskbarFont | Field::TaskbarWidth | Field::DeskFont)
+    }
+
+    /// 显示为 * 的输入框（密码、密钥）
+    pub fn secret(self) -> bool {
+        matches!(self, Field::ProxyPass | Field::LrcApiKey)
     }
 
     /// 改了以后要重新摆放任务栏歌词
@@ -109,6 +119,8 @@ pub fn get(s: &Settings, k: Key) -> bool {
         Key::LocalPic => s.lyrics.local_pic,
         Key::AutoDownload => s.lyrics.auto_download,
         Key::AlbumPic => s.lyrics.album_pic,
+        Key::ArtistPic => s.lyrics.artist_pic,
+        Key::AutoTag => s.lyrics.auto_tag,
         Key::UseCustomDir => s.lyrics.custom_dir.is_some(),
         Key::ProxyEnabled => s.network.proxy_enabled,
         Key::HotkeysEnabled => s.hotkeys.enabled,
@@ -136,6 +148,8 @@ pub fn set(s: &mut Settings, k: Key, v: bool) {
         Key::LocalPic => s.lyrics.local_pic = v,
         Key::AutoDownload => s.lyrics.auto_download = v,
         Key::AlbumPic => s.lyrics.album_pic = v,
+        Key::ArtistPic => s.lyrics.artist_pic = v,
+        Key::AutoTag => s.lyrics.auto_tag = v,
         Key::UseCustomDir => s.lyrics.custom_dir = if v { Some(s.lyrics.custom_dir.clone().unwrap_or_default()) } else { None },
         Key::ProxyEnabled => s.network.proxy_enabled = v,
         Key::HotkeysEnabled => s.hotkeys.enabled = v,
@@ -150,7 +164,7 @@ pub fn set(s: &mut Settings, k: Key, v: bool) {
 /// 输入框里显示的文字（密码显示为 *）
 pub fn text(s: &Settings, f: Field) -> String {
     match f {
-        Field::ProxyPass => "*".repeat(s.network.pass.chars().count()),
+        Field::ProxyPass | Field::LrcApiKey => "*".repeat(raw_text(s, f).chars().count()),
         _ => raw_text(s, f),
     }
 }
@@ -169,6 +183,8 @@ pub fn raw_text(s: &Settings, f: Field) -> String {
         Field::TaskbarFont => format!("{}", t.font_size),
         Field::TaskbarWidth => t.width.to_string(),
         Field::DeskFont => format!("{}", s.desk_lyric.font_size),
+        Field::LrcApiUrl => s.network.lrcapi_url.clone(),
+        Field::LrcApiKey => s.network.lrcapi_key.clone(),
     }
 }
 
@@ -213,6 +229,8 @@ pub fn set_text(s: &mut Settings, f: Field, v: &str) -> bool {
             }
             _ => return false,
         },
+        Field::LrcApiUrl => s.network.lrcapi_url = v.trim().to_string(),
+        Field::LrcApiKey => s.network.lrcapi_key = v.trim().to_string(),
     }
     true
 }
@@ -253,6 +271,8 @@ pub fn widgets(tab: usize, s: &Settings, device_name: &str) -> Vec<Widget> {
             Choice("歌词来源", s.lyrics.source.label().into(), ChoiceKind::LyricSource),
             Check(Key::AutoDownload, "启用自动下载歌词"),
             Check(Key::AlbumPic, "下载专辑图片 (LrcAPI / iTunes)"),
+            Check(Key::ArtistPic, "下载艺人图片 (没有专辑图片时显示；Deezer / 维基百科)"),
+            Check(Key::AutoTag, "下载后自动修改歌曲信息 (补全空着的艺人、专辑)"),
             Check(Key::UseCustomDir, "使用自定义歌词目录 (文件名格式 = \"艺人 - 曲目.lrc\")"),
             Text(Field::CustomDir, "歌词目录"),
             Button("浏览…", Btn::BrowseLyricDir),
@@ -283,6 +303,9 @@ pub fn widgets(tab: usize, s: &Settings, device_name: &str) -> Vec<Widget> {
                 Text(Field::ProxyUser, "用户名"),
                 Text(Field::ProxyPass, "密码"),
                 Label("未启用时使用系统代理".into()),
+                Text(Field::LrcApiUrl, "LrcAPI 地址"),
+                Text(Field::LrcApiKey, "LrcAPI 密钥"),
+                Label("自建 LrcAPI 时填写；地址留空使用公开服务 api.lrc.cx".into()),
             ]
         }
         TAB_HOTKEYS => {

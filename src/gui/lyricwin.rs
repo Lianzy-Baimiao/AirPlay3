@@ -136,7 +136,7 @@ impl App {
         s.status = format!("正在从{}下载歌词…", cand.provider.label());
         s.win.dirty = true;
         let id = s.track;
-        let (net, dir, title, artist) = {
+        let (net, dir, title, artist, auto_tag) = {
             let g = self.player.core.lock();
             let t = g.lib.track(id);
             (
@@ -144,13 +144,20 @@ impl App {
                 crate::player::nowplaying::save_lyric_dir(&g),
                 t.map(|t| t.display_title()).unwrap_or_default(),
                 t.map(|t| t.artist.clone()).unwrap_or_default(),
+                g.settings.lyrics.auto_tag,
             )
         };
         let (tx, hwnd) = (self.async_tx.clone(), self.bar_hwnd().0 as isize);
+        let (p, now) = (self.player.clone(), self.now.clone());
         std::thread::spawn(move || {
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let text = online::fetch(&net, &cand)?;
-                online::save(&text, &cand, &dir, &title, &artist).map_err(|e| format!("保存失败：{e}"))
+                let path = online::save(&text, &cand, &dir, &title, &artist).map_err(|e| format!("保存失败：{e}"))?;
+                // 「下载后自动修改歌曲信息」：补全空着的艺人、专辑
+                if auto_tag {
+                    p.fill_track_info(id, &cand, &now);
+                }
+                Ok(path)
             }))
             .unwrap_or_else(|_| Err("内部错误".into()));
             let _ = tx.send(AsyncMsg::LyricSaved(id, r));

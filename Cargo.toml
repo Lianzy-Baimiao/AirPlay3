@@ -1,6 +1,6 @@
 [package]
 name = "airplay3"
-version = "3.7.0"
+version = "3.8.0"
 edition = "2024"
 rust-version = "1.85"
 description = "AirPlay3 本地音乐播放器 (Rust 重写版)"
@@ -32,6 +32,7 @@ fastrand = "=2.5.0"
 version = "=0.62.2"
 features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",

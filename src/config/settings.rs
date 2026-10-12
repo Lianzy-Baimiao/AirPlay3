@@ -248,13 +248,17 @@ pub struct LyricSettings {
     pub auto_download: bool,
     /// 自动下载时也下载专辑图片（没有内嵌 / 本地图片时，从 LrcAPI / iTunes 下载并保存到本地）
     pub album_pic: bool,
+    /// 自动下载时，找不到专辑图片就下载艺人图片（Deezer / 维基百科，按艺人缓存）
+    pub artist_pic: bool,
+    /// 下载歌词后自动修改歌曲信息：只补全空着的艺人、专辑（只改曲库，不改音乐文件）
+    pub auto_tag: bool,
     /// 在线歌词来源（默认「自动」：同时搜索 LrcAPI、LRCLIB）
     pub source: crate::lyrics::online::Provider,
 }
 
 impl Default for LyricSettings {
     fn default() -> Self {
-        Self { show_lyric: true, show_cover: true, embedded_pic: true, local_pic: true, custom_dir: None, auto_download: false, album_pic: true, source: Default::default() }
+        Self { show_lyric: true, show_cover: true, embedded_pic: true, local_pic: true, custom_dir: None, auto_download: false, album_pic: true, artist_pic: true, auto_tag: false, source: Default::default() }
     }
 }
 
@@ -317,6 +321,10 @@ pub struct NetworkSettings {
     pub port: u16,
     pub user: String,
     pub pass: String,
+    /// 自建的 LrcAPI 地址（空 = 公开实例 api.lrc.cx）
+    pub lrcapi_url: String,
+    /// 自建 LrcAPI 的访问密钥（部署时 --auth 设置的值；空 = 不需要）
+    pub lrcapi_key: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

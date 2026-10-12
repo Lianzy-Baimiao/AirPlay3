@@ -58,7 +58,7 @@ impl App {
                     Widget::Check(k, _) => (model::get(s, *k), String::new()),
                     Widget::Choice(_, v, _) => (false, v.clone()),
                     Widget::Text(f, _) => match &sw.edit {
-                        Some((j, buf)) if *j == i => (false, if *f == model::Field::ProxyPass { "*".repeat(buf.chars().count()) } else { buf.clone() }),
+                        Some((j, buf)) if *j == i => (false, if f.secret() { "*".repeat(buf.chars().count()) } else { buf.clone() }),
                         _ => (false, model::text(s, *f)),
                     },
                     Widget::Hotkey(a) => {

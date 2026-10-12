@@ -86,6 +86,18 @@ pub fn normalize_key(s: &str) -> String {
         .collect()
 }
 
+/// 繁体转简体（Windows 自带的 LCMapStringEx）：`蘇打綠` → `苏打绿`。没有汉字或转换失败时原样返回
+pub fn to_simplified(s: &str) -> String {
+    use windows::Win32::Globalization::{LCMAP_SIMPLIFIED_CHINESE, LCMapStringEx};
+    if s.is_ascii() {
+        return s.to_string();
+    }
+    let src: Vec<u16> = s.encode_utf16().collect();
+    let mut out = vec![0u16; src.len() * 2 + 8];
+    let n = unsafe { LCMapStringEx(windows::core::w!("zh-CN"), LCMAP_SIMPLIFIED_CHINESE, &src, Some(&mut out), None, None, windows::Win32::Foundation::LPARAM(0)) };
+    if n <= 0 { s.to_string() } else { String::from_utf16_lossy(&out[..n as usize]) }
+}
+
 /// 去掉标题后面的括号说明：`暮色回响 (电影《默杀》推广曲)` → `暮色回响`。
 pub fn base_title(s: &str) -> &str {
     let cut = s
