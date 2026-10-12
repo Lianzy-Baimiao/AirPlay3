@@ -13,7 +13,8 @@ use crate::skin::icons;
 
 pub const W: i32 = 304;
 pub const H: i32 = 24;
-const GAP: i32 = 41;
+/// 歌词条默认在控制条下方 65 像素（原版位置）
+const GAP: i32 = 65;
 const FONT: Font = Font::px(12.0, false);
 const BTN_PREV: R = R::new(123, 6, 16, 12);
 const BTN_PLAY: R = R::new(144, 6, 16, 12);
@@ -25,8 +26,18 @@ pub struct Minibar {
     pub top: Popup,
     pub bottom: Popup,
     pub hover: [bool; 2],
-    pub drag: Option<(i32, i32)>,
+    pub drag: Option<MiniDrag>,
     pub last: LineState,
+}
+
+/// 拖动迷你条（原版：拖控制条时歌词条一起移动；拖歌词条只移动歌词条；都会吸附到屏幕边、任务栏和另一条）
+#[derive(Clone, Copy)]
+pub struct MiniDrag {
+    /// 0 = 控制条，1 = 歌词条
+    lead: usize,
+    cursor: (i32, i32),
+    rects: [R; 2],
+    taskbar: Option<R>,
 }
 
 fn strip(c: &mut Canvas, hover: bool) {
@@ -118,17 +129,53 @@ impl App {
         m.bottom.present();
     }
 
+    /// 按鼠标位置移动迷你条（吸附算法与主界面面板相同，见 snap.rs）
+    fn minibar_drag(&mut self, d: MiniDrag) {
+        self.minibar_drag_at(d, super::resize::cursor());
+    }
+
+    fn minibar_drag_at(&mut self, d: MiniDrag, (cx, cy): (i32, i32)) {
+        let s = d.rects[d.lead];
+        let p = R::new(s.x + cx - d.cursor.0, s.y + cy - d.cursor.1, s.w, s.h);
+        let moving = if d.lead == 0 { [true, true] } else { [false, true] };
+        let env = super::snap::Env { taskbar: d.taskbar, work_area: &super::resize::work_area };
+        let q = super::snap::group_move(&d.rects, &[true, true], &moving, d.lead, p, d.lead == 0, &env);
+        let (dx, dy) = (q.x - s.x, q.y - s.y);
+        if let Some(m) = self.minibar.as_mut() {
+            if moving[0] {
+                m.top.move_to(d.rects[0].x + dx, d.rects[0].y + dy);
+            }
+            m.bottom.move_to(d.rects[1].x + dx, d.rects[1].y + dy);
+        }
+        // 拖控制条时，隐藏的主界面跟着移动（还原时回到迷你条的位置）
+        if moving[0] {
+            self.move_to(d.rects[0].x + dx, d.rects[0].y + dy);
+        }
+    }
+
+    /// 仅调试构建：模拟拖动迷你条（0 = 控制条，1 = 歌词条），返回两条的位置
+    #[cfg(debug_assertions)]
+    pub fn test_minibar_drag(&mut self, lead: usize, dx: i32, dy: i32) -> Option<[(i32, i32); 2]> {
+        if self.minibar.is_none() {
+            self.toggle_minibar();
+        }
+        let m = self.minibar.as_ref()?;
+        let rect = |p: &Popup| R::new(p.pos.0, p.pos.1, W, H);
+        let c0 = (10_000, 10_000);
+        let d = MiniDrag { lead, cursor: c0, rects: [rect(&m.top), rect(&m.bottom)], taskbar: super::resize::taskbar_rect() };
+        self.minibar_drag_at(d, (c0.0 + dx, c0.1 + dy));
+        let m = self.minibar.as_ref()?;
+        Some([m.top.pos, m.bottom.pos])
+    }
+
     pub fn minibar_msg(&mut self, hwnd: HWND, msg: u32, _wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
         let m = self.minibar.as_mut()?;
         let which = if m.top.hwnd == hwnd { 0 } else if m.bottom.hwnd == hwnd { 1 } else { return None };
         let (x, y) = (super::wnd::lo(lp), super::wnd::hi(lp));
         match msg {
             WM_MOUSEMOVE => {
-                if let Some((dx, dy)) = m.drag {
-                    let (cx, cy) = super::resize::cursor();
-                    m.top.move_to(cx - dx, cy - dy);
-                    m.bottom.move_to(cx - dx, cy - dy + GAP);
-                    self.move_to(cx - dx, cy - dy);
+                if let Some(d) = m.drag {
+                    self.minibar_drag(d);
                 } else if !m.hover[which] {
                     m.hover[which] = true;
                     let mut t = windows::Win32::UI::Input::KeyboardAndMouse::TRACKMOUSEEVENT {
@@ -159,8 +206,8 @@ impl App {
                 } else if which == 0 && BTN_CLOSE.shrink(-2).contains(x, y) {
                     self.quit();
                 } else {
-                    let (cx, cy) = super::resize::cursor();
-                    m.drag = Some((cx - m.top.pos.0, cy - m.top.pos.1));
+                    let rect = |p: &Popup| R::new(p.pos.0, p.pos.1, W, H);
+                    m.drag = Some(MiniDrag { lead: which, cursor: super::resize::cursor(), rects: [rect(&m.top), rect(&m.bottom)], taskbar: super::resize::taskbar_rect() });
                     unsafe { SetCapture(hwnd) };
                 }
                 self.paint_minibar();
@@ -172,6 +219,8 @@ impl App {
                 }
             }
             WM_LBUTTONDBLCLK => self.toggle_minibar(),
+            // Alt+F4 等：与主界面一样完全退出（否则只关掉迷你条，进程留在后台）
+            WM_CLOSE => self.quit(),
             WM_RBUTTONUP => self.act(super::menu::Act::MainMenu),
             WM_MOUSEWHEEL => {
                 let d = ((_wp.0 >> 16) & 0xFFFF) as i16 as i32;

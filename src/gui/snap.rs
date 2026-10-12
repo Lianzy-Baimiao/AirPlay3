@@ -287,6 +287,21 @@ mod tests {
         assert!(!touching(R::new(338, 163, 304, 260), EQ));
     }
 
+    /// 迷你条（原版）：拖控制条两条一起动；拖歌词条只动歌词条，靠近控制条 12 像素内吸上
+    #[test]
+    fn minibar_strips() {
+        let (tb, wa) = env(3840, 2120);
+        let env = Env { taskbar: tb, work_area: &wa };
+        let r = [R::new(338, 98, 304, 24), R::new(338, 163, 304, 24)];
+        let p = group_move(&r, &[true; 2], &[true, true], 0, R::new(438, 148, 304, 24), true, &env);
+        assert_eq!(p, R::new(438, 148, 304, 24));
+        // 歌词条拖到离控制条下边 8 像素处：吸到贴着控制条（吸附矩形共用一行）
+        let q = group_move(&r, &[true; 2], &[false, true], 1, R::new(338, 128, 304, 24), false, &env);
+        assert_eq!(pane_edges(q).t, pane_edges(r[0]).b);
+        let far = R::new(500, 300, 304, 24);
+        assert_eq!(group_move(&r, &[true; 2], &[false, true], 1, far, false, &env), far);
+    }
+
     #[test]
     fn untouched_drag_stays_put() {
         let (tb, wa) = env(3840, 2120);

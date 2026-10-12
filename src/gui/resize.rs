@@ -44,7 +44,7 @@ pub fn grip_margins(c: &mut Canvas, pane: Pane) {
     c.hit_margin(R::new(w - EDGE, top, EDGE, h - top));
 }
 
-fn taskbar_rect() -> Option<R> {
+pub(super) fn taskbar_rect() -> Option<R> {
     unsafe {
         let h = FindWindowW(w!("Shell_TrayWnd"), None).ok()?;
         let mut r = RECT::default();
@@ -54,7 +54,7 @@ fn taskbar_rect() -> Option<R> {
 }
 
 /// 矩形中心所在显示器的工作区
-fn work_area(r: R) -> R {
+pub(super) fn work_area(r: R) -> R {
     super::popup::work_area_at((r.x + r.w / 2, r.y + r.h / 2))
 }
 
@@ -221,6 +221,12 @@ impl App {
     pub fn test_drags(&mut self, spec: &str) {
         for op in spec.split(';').map(str::trim).filter(|s| !s.is_empty()) {
             let Some((who, d)) = op.split_once(':') else { continue };
+            if let Some(lead) = ["mtop", "mlyric"].iter().position(|n| who == *n) {
+                let Some((dx, dy)) = d.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?))) else { continue };
+                let r = self.test_minibar_drag(lead, dx, dy);
+                log::info!("自测拖动 {op} -> 迷你条 {:?} 主界面播放条 {:?}", r, self.bar_pos());
+                continue;
+            }
             let (name, edges) = who.split_once('@').map_or((who, 0), |(n, e)| (n, e.parse().unwrap_or(0)));
             let pane = match name {
                 "bar" => Pane::Bar,
