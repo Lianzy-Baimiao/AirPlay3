@@ -51,14 +51,16 @@ AirPlay3 是 2012 年前后的一款国产绿色音乐播放器（airplayme.com�
 - 网络电台（替代原版已关闭的「精选电台」）：主菜单 →「网络电台…」
   - 推荐（按地区，默认按系统地区）/ 热门 / 收藏 / 按名称或标签搜索，双击播放；上一首 / 下一首切换电台
   - 支持 MP3、AAC / HE-AAC（用 Windows 自带的解码器）直播流和 HLS（m3u8，含 MPEG-TS 分段）；显示电台图标和当前节目名，断线自动重连
-- 格式：MP3 / FLAC / OGG / WAV / AIFF / M4A(AAC、ALAC) / WMA / AC3 / TTA / WavPack 等；列表文件 m3u / m3u8 / pls / wpl / asx / xspf / ttpl / apl
-  - TTA、WavPack 用自带的纯 Rust 解码器，与 ffmpeg / 官方解码器逐样本一致。WavPack 支持 8 ~ 32 位整数、32 位浮点、无损和混合（有损）模式、多声道；不支持 .wvc 修正文件和 DSD
+- 格式：MP3 / FLAC / OGG / WAV / AIFF / M4A(AAC、ALAC) / WMA / AC3 / APE / TTA / WavPack 等；列表文件 m3u / m3u8 / pls / wpl / asx / xspf / ttpl / apl
+  - APE、TTA、WavPack 用自带的纯 Rust 解码器，与 ffmpeg / 官方解码器逐样本一致
+  - APE（Monkey's Audio）：3.80 起的所有版本、5 个压缩级别、8 ~ 32 位、浮点、多声道
+  - WavPack：8 ~ 32 位整数、32 位浮点、无损和混合（有损）模式、多声道；不支持 .wvc 修正文件和 DSD
 - 本地歌词：LRC（GBK / UTF-8 自动识别、乱码修复、模糊匹配文件名），内嵌歌词与封面
 
 ## 尚未完成
 
 - 原版的在线服务（电台、歌词、图片、自动更新）早已关闭，已换成上面说的开源服务
-- 不支持 APE / TAK / MPC / DTS（正在逐个加入）
+- 不支持 TAK / MPC / DTS（正在逐个加入）
 
 ## 使用
 
@@ -82,4 +84,4 @@ cargo build --release
 
 代码以 [MIT](LICENSE) 协议开源。
 
-WavPack 解码器改写自 WavPack 参考库（BSD 许可），声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)，发布包中也附带这个文件。
+APE 解码器改写自 Monkey's Audio SDK、WavPack 解码器改写自 WavPack 参考库（都是 BSD 许可），声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)，发布包中也附带这个文件。

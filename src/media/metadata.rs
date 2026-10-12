@@ -32,14 +32,20 @@ fn via_carrier(path: &Path) -> bool {
 
 fn open(path: &Path, cover: bool) -> Option<lofty::file::TaggedFile> {
     let opts = ParseOptions::new().read_cover_art(cover).parsing_mode(ParsingMode::Relaxed);
-    if via_carrier(path) {
-        let data = super::carrier::build(path)?;
-        let opts = ParseOptions::new().read_cover_art(cover).parsing_mode(ParsingMode::Relaxed).read_properties(false);
-        let p = lofty::probe::Probe::with_file_type(std::io::Cursor::new(data), lofty::file::FileType::Mpeg);
-        return p.options(opts).read().ok();
+    if !via_carrier(path) {
+        let read = || lofty::probe::Probe::open(path).ok()?.options(opts).guess_file_type().ok()?.read().ok();
+        if let Some(f) = read() {
+            return Some(f);
+        }
+        // lofty 认不出的变体（如浮点的 APE「MACF」）：有自带解码器的格式改用下面的办法读标签
+        if !crate::audio::codec::EXTS.contains(&crate::util::ext_lower(path).as_str()) {
+            return None;
+        }
     }
-    let probe = lofty::probe::Probe::open(path).ok()?.options(opts).guess_file_type().ok()?;
-    probe.read().ok()
+    let data = super::carrier::build(path)?;
+    let opts = ParseOptions::new().read_cover_art(cover).parsing_mode(ParsingMode::Relaxed).read_properties(false);
+    let p = lofty::probe::Probe::with_file_type(std::io::Cursor::new(data), lofty::file::FileType::Mpeg);
+    p.options(opts).read().ok()
 }
 
 /// 主标签优先，其它标签补缺。
@@ -60,12 +66,14 @@ fn pick(tags: &[&Tag], get: impl Fn(&Tag) -> Option<String>) -> String {
 
 pub fn read_tags(path: &Path) -> Option<TagInfo> {
     if !via_carrier(path) {
-        let mut t = read_lofty(path)?;
-        // lofty 有时读不全属性（如多声道 WavPack 的声道数是 0）：有自带解码器的格式由它补上
-        if t.channels == 0 || t.sample_rate == 0 || t.duration <= 0.0 {
-            fill_from_decoder(path, &mut t);
+        if let Some(mut t) = read_lofty(path) {
+            // lofty 有时读不全属性（如多声道 WavPack 的声道数是 0、经标签载体读的没有属性）：
+            // 有自带解码器的格式由它补上
+            if t.channels == 0 || t.sample_rate == 0 || t.duration <= 0.0 {
+                fill_from_decoder(path, &mut t);
+            }
+            return Some(t);
         }
-        return Some(t);
     }
     // 没有标签也要有时长、采样率等
     let mut t = read_lofty(path).unwrap_or_default();

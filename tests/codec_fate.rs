@@ -14,6 +14,8 @@ fn root() -> Option<PathBuf> {
 struct Report {
     frames: usize,
     ref_frames: usize,
+    /// 文件头说的总帧数
+    total: u64,
     /// 第一个对不上的样本（交错序号）
     mismatch: Option<usize>,
     max_diff: f64,
@@ -40,6 +42,7 @@ fn compare(root: &Path, name: &str, tol: f64) -> Result<Report, String> {
     let (kind, ch, rate, want) = reference(root, name)?;
     let mut dec = open_decoder(&root.join("fate").join(name)).ok_or("不认识的格式")?.map_err(|e| e.to_string())?;
     let spec = dec.spec();
+    let total = dec.total_frames().unwrap_or(0);
     if spec.channels as usize != ch || spec.rate != rate {
         return Err(format!("格式不对：{}ch {}Hz，参考 {ch}ch {rate}Hz", spec.channels, spec.rate));
     }
@@ -71,7 +74,7 @@ fn compare(root: &Path, name: &str, tol: f64) -> Result<Report, String> {
             mismatch = Some(i);
         }
     }
-    Ok(Report { frames: got.len() / ch, ref_frames: want.len() / ch, mismatch, max_diff, secs })
+    Ok(Report { frames: got.len() / ch, ref_frames: want.len() / ch, total, mismatch, max_diff, secs })
 }
 
 /// 跳到中间某处再读，和参考 PCM 同一位置对比（f32）
@@ -97,6 +100,12 @@ fn check_seek(root: &Path, name: &str, tol: f64) -> Result<(), String> {
 }
 
 fn run(exts: &[&str], tol: f64) {
+    run_slack(exts, tol, 0);
+}
+
+/// `slack`：截断的文件（参考比文件头说的短）允许少解这么多帧。ffmpeg 对最后不完整的一帧会把读过头的
+/// 填充也当数据解出来，我们只输出能确定的部分
+fn run_slack(exts: &[&str], tol: f64, slack: usize) {
     let Some(root) = root() else {
         eprintln!("没有设置 AP3_FATE，跳过");
         return;
@@ -113,7 +122,8 @@ fn run(exts: &[&str], tol: f64) {
         match compare(&root, n, tol) {
             Ok(r) => {
                 let dur = r.frames as f64 / 44_100.0;
-                let ok = r.mismatch.is_none() && r.frames >= r.ref_frames;
+                let short_ok = r.total > r.ref_frames as u64 && r.frames + slack >= r.ref_frames;
+                let ok = r.mismatch.is_none() && (r.frames >= r.ref_frames || short_ok);
                 println!(
                     "{} {n:34} {} / 参考 {} 帧，最大误差 {:.3e}{}  {:.0}x 实时",
                     if ok { "OK " } else { "XX " },
@@ -242,6 +252,30 @@ fn corrupt() {
         }
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 浮点 APE（"MACF"，lofty 认不出）：标签经标签载体读出，时长等由自带解码器给出。
+/// 样本由 apegen.py 生成后用 SDK 的 TagFileSimple 加上 APEv2 标签（AP3_FATE 指向 apeextra）
+#[test]
+#[ignore]
+fn ape_float_tags() {
+    let Some(root) = root() else { return };
+    let p = root.join("tagged_f32.ape");
+    if !p.exists() {
+        eprintln!("没有 tagged_f32.ape，跳过");
+        return;
+    }
+    let t = airplay3::media::metadata::read_tags(&p).expect("读不到标签");
+    println!("{} / {} / {}  {:.2}s {}Hz {}ch {}kbps", t.title, t.artist, t.album, t.duration, t.sample_rate, t.channels, t.bitrate);
+    assert_eq!((t.title.as_str(), t.artist.as_str(), t.album.as_str()), ("Float Title", "Test Artist", "Test Album"));
+    assert!((t.duration - 9.5).abs() < 0.01 && t.sample_rate == 44_100 && t.channels == 2 && t.bitrate > 100);
+}
+
+/// Monkey's Audio：3.80 ~ 3.99 各版本、各压缩级别、24 位、截断的文件
+#[test]
+#[ignore]
+fn ape() {
+    run_slack(&[".ape"], 0.0, 73728);
 }
 
 /// WavPack：8 ~ 32 位整数、32 位浮点、有损（混合模式）、多声道、假立体声、截断的文件

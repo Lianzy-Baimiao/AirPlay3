@@ -46,7 +46,7 @@ AirPlay3（airplayme.com，最后版本 2012-07-30）是一款界面极简、深
 - 单实例；关闭即完全退出；可最小化到托盘。
 
 ### 5.3 播放
-- 格式：MP3 / FLAC / OGG / WAV / AIFF / M4A（AAC、ALAC）/ WMA / AC3 / TTA / WavPack 等；列表 m3u / m3u8 / pls / wpl / asx / xspf / ttpl / apl；CUE 分轨。TTA、WavPack 用自带解码器（`audio::codec`），要求与参考解码器逐样本一致。
+- 格式：MP3 / FLAC / OGG / WAV / AIFF / M4A（AAC、ALAC）/ WMA / AC3 / APE / TTA / WavPack 等；列表 m3u / m3u8 / pls / wpl / asx / xspf / ttpl / apl；CUE 分轨。APE、TTA、WavPack 用自带解码器（`audio::codec`），要求与参考解码器逐样本一致。
 - 无缝衔接、WASAPI 共享 / 独占、均衡器、播放模式、续播上次位置、全局热键、系统媒体控制（SMTC）。
 
 ### 5.4 歌词与图片

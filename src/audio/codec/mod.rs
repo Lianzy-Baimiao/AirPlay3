@@ -8,6 +8,7 @@ use anyhow::Result;
 
 use super::source::{Source, Spec};
 
+pub mod ape;
 pub mod bits;
 pub mod tta;
 pub mod wavpack;
@@ -38,6 +39,9 @@ pub trait BlockDecoder: Send {
     fn seek(&mut self, frame: u64) -> Result<u64>;
 }
 
+/// 自带解码器能解的扩展名（与 `open_decoder` 一致）
+pub const EXTS: &[&str] = &["tta", "wv", "ape"];
+
 /// 用自带解码器打开（按扩展名）；不是这些格式时返回 None
 pub fn open_decoder(path: &Path) -> Option<Result<Box<dyn BlockDecoder>>> {
     fn boxed<D: BlockDecoder + 'static>(r: Result<D>) -> Result<Box<dyn BlockDecoder>> {
@@ -46,6 +50,7 @@ pub fn open_decoder(path: &Path) -> Option<Result<Box<dyn BlockDecoder>>> {
     match crate::util::ext_lower(path).as_str() {
         "tta" => Some(boxed(tta::TtaDecoder::open(path))),
         "wv" => Some(boxed(wavpack::WvDecoder::open(path))),
+        "ape" => Some(boxed(ape::ApeDecoder::open(path))),
         _ => None,
     }
 }
@@ -117,6 +122,11 @@ impl Source for BlockSource {
 
 /// CRC-32（IEEE 802.3，与 zlib 相同）
 pub fn crc32(data: &[u8]) -> u32 {
+    !crc32_update(!0, data)
+}
+
+/// CRC-32 的中间状态更新（开头、结尾都不取反）
+pub fn crc32_update(c: u32, data: &[u8]) -> u32 {
     static TABLE: std::sync::OnceLock<[u32; 256]> = std::sync::OnceLock::new();
     let t = TABLE.get_or_init(|| {
         let mut t = [0u32; 256];
@@ -129,7 +139,7 @@ pub fn crc32(data: &[u8]) -> u32 {
         }
         t
     });
-    !data.iter().fold(!0u32, |c, &b| t[((c ^ b as u32) & 0xFF) as usize] ^ (c >> 8))
+    data.iter().fold(c, |c, &b| t[((c ^ b as u32) & 0xFF) as usize] ^ (c >> 8))
 }
 
 #[cfg(test)]
