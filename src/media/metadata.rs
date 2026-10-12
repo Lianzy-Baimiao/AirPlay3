@@ -27,7 +27,7 @@ pub struct TagInfo {
 
 /// lofty 不认识、标签另外读的格式（见 `carrier`）；音频属性由自带解码器提供
 fn via_carrier(path: &Path) -> bool {
-    matches!(crate::util::ext_lower(path).as_str(), "tta")
+    matches!(crate::util::ext_lower(path).as_str(), "tta" | "tak")
 }
 
 fn open(path: &Path, cover: bool) -> Option<lofty::file::TaggedFile> {

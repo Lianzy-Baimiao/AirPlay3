@@ -84,6 +84,39 @@ impl<'a> LsbReader<'a> {
         n
     }
 
+    /// 一元码：连续的 0 的个数（遇到 1 停，这个 1 也读掉）；读满 `max` 个 0 时停（不读 1）
+    pub fn zeros(&mut self, max: u32) -> u32 {
+        let mut n = 0;
+        while n < max {
+            if self.have == 0 {
+                self.refill();
+            }
+            let run = self.cache.trailing_zeros().min(self.have).min(max - n);
+            n += run;
+            self.cache = self.cache.checked_shr(run).unwrap_or(0);
+            self.have -= run;
+            if n == max {
+                break;
+            }
+            if self.have > 0 {
+                // 下一位是 1
+                self.cache >>= 1;
+                self.have -= 1;
+                break;
+            }
+        }
+        self.check();
+        n
+    }
+
+    /// 读 n 位有符号数（补码，0 ~ 32 位）
+    pub fn sbits(&mut self, n: u32) -> i32 {
+        if n == 0 {
+            return 0;
+        }
+        ((self.bits(n) << (32 - n)) as i32) >> (32 - n)
+    }
+
     /// 跳到下一个字节边界
     pub fn align(&mut self) {
         let r = self.have % 8;
@@ -137,5 +170,30 @@ mod tests {
         let mut r = LsbReader::new(&[0xFFu8]);
         assert_eq!(r.ones(100), 8);
         assert!(r.overrun);
+    }
+
+    #[test]
+    fn lsb_zeros_signed() {
+        // 0b1111_1000：三个 0 再一个 1；0b0000_0000 0b0000_0010：九个 0 再一个 1
+        let d = [0b1111_1000u8, 0x00, 0b0000_0010, 0xFF];
+        let mut r = LsbReader::new(&d);
+        assert_eq!(r.zeros(9), 3);
+        assert_eq!(r.position(), 4);
+        assert_eq!(r.bits(4), 0xF);
+        assert_eq!(r.zeros(20), 9);
+        assert_eq!(r.position(), 18);
+        // 读满上限时不读后面的 1
+        let mut r = LsbReader::new(&[0x00u8, 0x01]);
+        assert_eq!(r.zeros(6), 6);
+        assert_eq!(r.position(), 6);
+        assert_eq!(r.zeros(9), 2);
+        assert_eq!(r.position(), 9);
+        // 有符号数
+        let mut r = LsbReader::new(&[0b1110_0101u8, 0x80, 0xFF, 0xFF, 0xFF, 0x7F]);
+        assert_eq!(r.sbits(3), -3);
+        assert_eq!(r.sbits(5), -4);
+        assert_eq!(r.sbits(8), -128);
+        assert_eq!(r.sbits(32), i32::MAX);
+        assert_eq!(r.sbits(0), 0);
     }
 }

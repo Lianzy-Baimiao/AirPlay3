@@ -9,10 +9,10 @@ pub mod metadata;
 
 /// 能解码的音频扩展名。
 /// symphonia: mp3/mp2/mp1/flac/ogg/oga/wav/aif/aiff/aifc/m4a/mp4/aac/caf/mka/webm/alac；
-/// Media Foundation 兜底: wma/asf/ac3/m4b 等；自带解码器（audio::codec）: tta/wv/ape/mpc。
+/// Media Foundation 兜底: wma/asf/ac3/m4b 等；自带解码器（audio::codec）: tta/wv/ape/mpc/tak。
 pub const AUDIO_EXTS: &[&str] = &[
     "mp3", "mp2", "mp1", "mpa", "flac", "ogg", "oga", "wav", "aif", "aiff", "aifc", "m4a", "m4b", "mp4", "aac", "alac",
-    "caf", "mka", "webm", "wma", "asf", "ac3", "tta", "wv", "ape", "mpc", "mp+", "mpp",
+    "caf", "mka", "webm", "wma", "asf", "ac3", "tta", "wv", "ape", "mpc", "mp+", "mpp", "tak",
 ];
 
 /// 能导入的播放列表扩展名（原版"列表文件"）。
@@ -34,7 +34,7 @@ pub fn dialog_filters() -> Vec<(&'static str, Vec<&'static str>)> {
     vec![
         ("全部支持格式", all),
         ("有损压缩音频格式", vec!["mp3", "mp2", "mp1", "mpa", "ogg", "oga", "m4a", "aac", "wma", "asf", "ac3", "mpc", "mp+", "mpp"]),
-        ("无损压缩音频格式", vec!["flac", "alac", "m4a", "wav", "aif", "aiff", "aifc", "caf", "tta", "wv", "ape"]),
+        ("无损压缩音频格式", vec!["flac", "alac", "m4a", "wav", "aif", "aiff", "aifc", "caf", "tta", "wv", "ape", "tak"]),
         ("CUE 音频索引文件", vec!["cue"]),
         ("列表文件", PLAYLIST_EXTS.to_vec()),
         ("所有文件", vec!["*"]),

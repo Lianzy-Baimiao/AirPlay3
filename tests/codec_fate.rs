@@ -279,6 +279,22 @@ fn corrupt() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 带 APEv2 标签的 TAK（Takc -tt 生成；lofty 不认识 TAK）：标签经标签载体读出，时长等由自带解码器给出
+#[test]
+#[ignore]
+fn tak_tags() {
+    let Some(root) = root() else { return };
+    let p = root.join("tagged.tak");
+    if !p.exists() {
+        eprintln!("没有 tagged.tak，跳过");
+        return;
+    }
+    let t = airplay3::media::metadata::read_tags(&p).expect("读不到标签");
+    println!("{} / {} / {}  {:.2}s {}Hz {}ch {}kbps", t.title, t.artist, t.album, t.duration, t.sample_rate, t.channels, t.bitrate);
+    assert_eq!((t.title.as_str(), t.artist.as_str(), t.album.as_str()), ("Tak Title", "Test Artist", "Test Album"));
+    assert!((t.duration - 9.5).abs() < 0.01 && t.sample_rate == 44_100 && t.channels == 2 && t.bitrate > 100);
+}
+
 /// 浮点 APE（"MACF"，lofty 认不出）：标签经标签载体读出，时长等由自带解码器给出。
 /// 样本由 apegen.py 生成后用 SDK 的 TagFileSimple 加上 APEv2 标签（AP3_FATE 指向 apeextra）
 #[test]
@@ -367,6 +383,60 @@ fn ape() {
 #[ignore]
 fn wavpack() {
     run(&[".wv"], 0.0);
+}
+
+/// TAK：各预设、帧长、8 / 16 / 24 位、单声道 ~ 6 声道、8 ~ 192 kHz、极短的文件（takgen.py 生成，
+/// 参考 PCM 由官方 Takc 解出）
+#[test]
+#[ignore]
+fn tak() {
+    run(&[".tak"], 0.0);
+}
+
+/// TAK 跳转到各处（开头、帧边界前后、最后一帧、末尾之后）和截断的文件。AP3_FATE 指向 takextra
+#[test]
+#[ignore]
+fn tak_seek() {
+    let Some(root) = root().filter(|r| r.join("fate/fsl512.tak").exists()) else {
+        eprintln!("没有 takgen.py 生成的样本，跳过");
+        return;
+    };
+    for name in ["p2.tak", "fsl512.tak", "r96k.tak", "c51.tak", "n11030.tak", "m8000_fsl512.tak"] {
+        let (_, ch, _, want) = reference(&root, name).unwrap();
+        let frames = want.len() / ch;
+        let mut src = open(&root.join("fate").join(name)).unwrap().unwrap();
+        for at in [0, 1, 511, 512, 5511, 5512, 5513, frames / 3, frames - 5000.min(frames / 2), frames - 1, frames, frames + 100] {
+            src.seek(at as u64).unwrap();
+            let (mut got, mut buf) = (Vec::new(), Vec::new());
+            while got.len() < 4096 * ch && src.read(&mut buf).unwrap() > 0 {
+                got.extend_from_slice(&buf);
+            }
+            let want = &want[(at.min(frames) * ch)..((at + 4096).min(frames) * ch)];
+            assert!(got.len() >= want.len(), "{name} 跳到 {at}：只读到 {} 帧", got.len() / ch);
+            for (k, (&g, &w)) in got.iter().zip(want).enumerate() {
+                assert_eq!(g as f64, w / 2f64.powi(31), "{name} 跳到 {at} 后第 {k} 个样本");
+            }
+        }
+        println!("{name}：跳转 OK");
+    }
+    // 截断的文件：能解的帧逐位相同，最后不完整的一帧是静音
+    let data = std::fs::read(root.join("fate/p2.tak")).unwrap();
+    let (_, ch, _, want) = reference(&root, "p2.tak").unwrap();
+    for cut in [data.len() / 3, data.len() * 2 / 3 + 7, data.len() - 100] {
+        let f = std::env::temp_dir().join("ap3_tak_cut.tak");
+        std::fs::write(&f, &data[..cut]).unwrap();
+        let mut dec = open_decoder(&f).unwrap().unwrap();
+        let (mut got, mut b) = (Vec::new(), Block::default());
+        while dec.decode(&mut b).unwrap() > 0 {
+            got.extend(b.int.iter().map(|&s| (s as f64) * 65536.0));
+        }
+        let _ = std::fs::remove_file(&f);
+        let n = got.len() / ch;
+        let good = got.iter().zip(&want).take_while(|(g, w)| g == w).count() / ch;
+        let silent = got[good * ch..].iter().all(|&s| s == 0.0);
+        println!("截断到 {cut} 字节：解出 {n} 帧，前 {good} 帧相同，之后{}静音", if silent { "全是" } else { "不全是" });
+        assert!(silent && n - good <= 5512 && n <= want.len() / ch, "截断到 {cut}：{n} 帧，{good} 帧相同");
+    }
 }
 
 #[test]

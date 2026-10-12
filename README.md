@@ -51,17 +51,18 @@ AirPlay3 是 2012 年前后的一款国产绿色音乐播放器（airplayme.com�
 - 网络电台（替代原版已关闭的「精选电台」）：主菜单 →「网络电台…」
   - 推荐（按地区，默认按系统地区）/ 热门 / 收藏 / 按名称或标签搜索，双击播放；上一首 / 下一首切换电台
   - 支持 MP3、AAC / HE-AAC（用 Windows 自带的解码器）直播流和 HLS（m3u8，含 MPEG-TS 分段）；显示电台图标和当前节目名，断线自动重连
-- 格式：MP3 / FLAC / OGG / WAV / AIFF / M4A(AAC、ALAC) / WMA / AC3 / APE / TTA / WavPack / Musepack 等；列表文件 m3u / m3u8 / pls / wpl / asx / xspf / ttpl / apl
-  - APE、TTA、WavPack、Musepack 用自带的纯 Rust 解码器，与 ffmpeg / 官方解码器逐样本一致
+- 格式：MP3 / FLAC / OGG / WAV / AIFF / M4A(AAC、ALAC) / WMA / AC3 / APE / TTA / WavPack / Musepack / TAK 等；列表文件 m3u / m3u8 / pls / wpl / asx / xspf / ttpl / apl
+  - APE、TTA、WavPack、Musepack、TAK 用自带的纯 Rust 解码器，与 ffmpeg / 官方解码器逐样本一致
   - APE（Monkey's Audio）：3.80 起的所有版本、5 个压缩级别、8 ~ 32 位、浮点、多声道
   - WavPack：8 ~ 32 位整数、32 位浮点、无损和混合（有损）模式、多声道；不支持 .wvc 修正文件和 DSD
   - Musepack（.mpc）：SV7 和 SV8，无缝播放信息、跳转与官方解码器一致
+  - TAK：官方编码器 2.3.3 的所有预设，8 / 16 / 24 位、最多 6 声道、8 ~ 192 kHz
 - 本地歌词：LRC（GBK / UTF-8 自动识别、乱码修复、模糊匹配文件名），内嵌歌词与封面
 
 ## 尚未完成
 
 - 原版的在线服务（电台、歌词、图片、自动更新）早已关闭，已换成上面说的开源服务
-- 不支持 TAK / DTS（正在逐个加入）
+- 不支持 DTS（正在加入）
 
 ## 使用
 
@@ -85,4 +86,4 @@ cargo build --release
 
 代码以 [MIT](LICENSE) 协议开源。
 
-APE、WavPack、Musepack 解码器分别改写自 Monkey's Audio SDK、WavPack 参考库、libmpcdec（都是 BSD 许可），声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)，发布包中也附带这个文件。
+APE、WavPack、Musepack 解码器分别改写自 Monkey's Audio SDK、WavPack 参考库、libmpcdec（都是 BSD 许可）。TAK 解码器改写自 FFmpeg，所在目录 `src/audio/codec/tak/` 以 [LGPL 2.1](LICENSE-LGPL-2.1.txt) 或更新版本发布（其余代码仍是 MIT）。各项声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)，发布包中也附带这些文件。
