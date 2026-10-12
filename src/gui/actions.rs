@@ -57,6 +57,7 @@ impl App {
             Item::Sub { label: "列表播放顺序".into(), items: order },
             Item::Sep,
             item("配置", Act::OpenConfig),
+            item("恢复默认位置", Act::ResetPosition),
             Item::Sep,
             item("退出", Act::Quit),
         ]);
@@ -341,6 +342,7 @@ impl App {
                 }
             }
             Act::OpenConfig => self.open_settings(),
+            Act::ResetPosition => self.reset_layout(),
             Act::Quit => self.quit(),
             _ => {}
         }

@@ -62,6 +62,20 @@ impl Popup {
     }
 }
 
+/// 某个屏幕点所在显示器的整个屏幕范围（含任务栏）
+pub fn monitor_at((x, y): (i32, i32)) -> super::canvas::R {
+    use windows::Win32::Graphics::Gdi::*;
+    unsafe {
+        let m = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST);
+        let mut mi = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if GetMonitorInfoW(m, &mut mi).as_bool() {
+            let r = mi.rcMonitor;
+            return super::canvas::R::new(r.left, r.top, r.right - r.left, r.bottom - r.top);
+        }
+        super::canvas::R::new(0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN))
+    }
+}
+
 /// 某个屏幕点所在显示器的工作区（多显示器时不能只用主屏尺寸）
 pub fn work_area_at((x, y): (i32, i32)) -> super::canvas::R {
     use windows::Win32::Graphics::Gdi::*;

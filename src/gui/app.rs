@@ -208,6 +208,19 @@ impl App {
         }
     }
 
+    /// 「恢复默认位置」：播放条回到主显示器中央，各面板回到默认的相对位置（大小不变）；迷你条一起回来
+    pub fn reset_layout(&mut self) {
+        let (x, y) = super::state::default_origin();
+        for p in [Pane::Bar, Pane::Cover, Pane::Eq, Pane::List] {
+            let (ox, oy) = self.sizes.default_offset(p);
+            self.place(p, x + ox, y + oy);
+        }
+        self.reset_minibar();
+        self.save_layout();
+        self.player.save(false);
+        self.dirty_all();
+    }
+
     /// 把播放条移到 (x, y)，所有面板（含已脱离的）平移同样的距离（迷你条拖动时用）
     pub fn move_to(&mut self, x: i32, y: i32) {
         let (bx, by) = self.bar_pos();

@@ -28,6 +28,30 @@ pub struct Minibar {
     pub hover: [bool; 2],
     pub drag: Option<MiniDrag>,
     pub last: LineState,
+    ticks: u32,
+}
+
+/// 所有任务栏（主屏 Shell_TrayWnd，其它显示器 Shell_SecondaryTrayWnd）的位置
+fn taskbars() -> Vec<R> {
+    use windows::core::w;
+    let mut v = Vec::new();
+    unsafe {
+        let mut push = |h: HWND| {
+            let mut r = RECT::default();
+            if GetWindowRect(h, &mut r).is_ok() {
+                v.push(R::new(r.left, r.top, r.right - r.left, r.bottom - r.top));
+            }
+        };
+        if let Ok(h) = FindWindowW(w!("Shell_TrayWnd"), None) {
+            push(h);
+        }
+        let mut after = None;
+        while let Ok(h) = FindWindowExW(None, after, w!("Shell_SecondaryTrayWnd"), None) {
+            push(h);
+            after = Some(h);
+        }
+    }
+    v
 }
 
 /// 拖动迷你条（原版：拖控制条时歌词条一起移动；拖歌词条只移动歌词条；都会吸附到屏幕边、任务栏和另一条）
@@ -74,7 +98,7 @@ impl App {
                 let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             }
         }
-        self.minibar = Some(Minibar { top, bottom, hover: [false; 2], drag: None, last: LineState::default() });
+        self.minibar = Some(Minibar { top, bottom, hover: [false; 2], drag: None, last: LineState::default(), ticks: 0 });
         self.paint_minibar();
         if let Some(m) = &self.minibar {
             m.top.show(false);
@@ -88,10 +112,44 @@ impl App {
         }
         let st = self.line_state();
         let m = self.minibar.as_mut().unwrap();
+        m.ticks = m.ticks.wrapping_add(1);
+        let check_z = m.ticks % 15 == 0;
         if st != m.last {
             m.last = st;
             self.paint_minibar();
         }
+        if check_z {
+            self.keep_minibar_on_top();
+        }
+    }
+
+    /// 迷你条放在任务栏上时，点任务栏（开始菜单、切换窗口）会让任务栏压到迷你条上面，迷你条就点不到了：
+    /// 盖着任务栏时每半秒把迷你条重新放到最上层
+    fn keep_minibar_on_top(&mut self) {
+        let Some(m) = self.minibar.as_ref() else { return };
+        if m.drag.is_some() {
+            return;
+        }
+        let strips = [(m.top.hwnd, m.top.pos), (m.bottom.hwnd, m.bottom.pos)];
+        let bars = taskbars();
+        for (h, (x, y)) in strips {
+            let r = R::new(x, y, W, H);
+            if bars.iter().any(|b| b.inter(&r).w > 0 && b.inter(&r).h > 0) {
+                unsafe {
+                    let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                }
+            }
+        }
+    }
+
+    /// 「恢复默认位置」：迷你条回到播放条的位置（控制条在上，歌词条在下方 65 像素）
+    pub fn reset_minibar(&mut self) {
+        let (x, y) = self.bar_pos();
+        if let Some(m) = self.minibar.as_mut() {
+            m.top.move_to(x, y);
+            m.bottom.move_to(x, y + GAP);
+        }
+        self.keep_minibar_on_top();
     }
 
     pub fn paint_minibar(&mut self) {
@@ -140,7 +198,9 @@ impl App {
         let moving = if d.lead == 0 { [true, true] } else { [false, true] };
         let env = super::snap::Env { taskbar: d.taskbar, work_area: &super::resize::work_area };
         let q = super::snap::group_move(&d.rects, &[true, true], &moving, d.lead, p, d.lead == 0, &env);
-        let (dx, dy) = (q.x - s.x, q.y - s.y);
+        // 可以盖住任务栏，但不能拖出屏幕（限制在光标所在显示器的整个屏幕范围里）
+        let group: Vec<R> = (0..2).filter(|&i| moving[i]).map(|i| d.rects[i]).collect();
+        let (dx, dy) = super::snap::keep_inside(&group, (q.x - s.x, q.y - s.y), super::popup::monitor_at((cx, cy)));
         if let Some(m) = self.minibar.as_mut() {
             if moving[0] {
                 m.top.move_to(d.rects[0].x + dx, d.rects[0].y + dy);

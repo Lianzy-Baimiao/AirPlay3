@@ -200,6 +200,20 @@ pub fn group_move(rects: &[R], visible: &[bool], moving: &[bool], lead: usize, p
 }
 
 /// 调整大小：被拖动的边吸附到其它可见面板 / 屏幕的边
+/// 整组移动 (dx, dy) 后不能出屏幕：把要移动的那几块（按看得见的边，见 `pane_edges`）的外框限制在 `area` 里，
+/// 返回修正后的 (dx, dy)。外框比 `area` 还大时左边、上边对齐。
+pub fn keep_inside(moving: &[R], (dx, dy): (i32, i32), area: R) -> (i32, i32) {
+    if moving.is_empty() {
+        return (dx, dy);
+    }
+    let e: Vec<Edges> = moving.iter().map(|r| pane_edges(R::new(r.x + dx, r.y + dy, r.w, r.h))).collect();
+    let (l, t) = (e.iter().map(|e| e.l).min().unwrap(), e.iter().map(|e| e.t).min().unwrap());
+    let (r, b) = (e.iter().map(|e| e.r).max().unwrap(), e.iter().map(|e| e.b).max().unwrap());
+    let a = screen_edges(area);
+    let fix = |lo: i32, hi: i32, alo: i32, ahi: i32| if lo < alo { alo - lo } else if hi > ahi { (ahi - hi).max(alo - lo) } else { 0 };
+    (dx + fix(l, r, a.l, a.r), dy + fix(t, b, a.t, a.b))
+}
+
 pub fn resize(rects: &[R], visible: &[bool], me: usize, p: R, edges: u32, env: &Env) -> R {
     let others: Vec<R> = (0..rects.len()).filter(|&i| i != me && visible[i]).map(|i| rects[i]).collect();
     snap(p, edges, env, &others)
@@ -221,6 +235,27 @@ mod tests {
 
     fn layout() -> [R; 4] {
         [BAR, LIST, COVER, EQ]
+    }
+
+    #[test]
+    fn stays_on_screen() {
+        let area = R::new(0, 0, 1920, 1040);
+        let g = [BAR, LIST, COVER, EQ];
+        // 屏幕内：不变
+        assert_eq!(keep_inside(&g, (10, 20), area), (10, 20));
+        // 往左拖出去：看得见的左边停在屏幕左边（外框在 -1）
+        let (dx, _) = keep_inside(&g, (-5000, 0), area);
+        assert_eq!(BAR.x + dx + 1, 0);
+        // 往右下拖出去：列表的右边、均衡器的下边停在屏幕边上
+        let (dx, dy) = keep_inside(&g, (5000, 5000), area);
+        assert_eq!((LIST.right() + dx - 2, EQ.bottom() + dy - 2), (1920, 1040));
+        // 比屏幕还大：左上对齐
+        let (dx, dy) = keep_inside(&g, (300, 300), R::new(0, 0, 200, 100));
+        assert_eq!((BAR.x + dx + 1, BAR.y + dy + 1), (0, 0));
+        // 第二块显示器
+        let (dx, _) = keep_inside(&[BAR], (-9999, 0), R::new(1920, 0, 1280, 1024));
+        assert_eq!(BAR.x + dx + 1, 1920);
+        assert_eq!(keep_inside(&[], (7, 8), area), (7, 8));
     }
 
     #[test]

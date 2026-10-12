@@ -43,6 +43,8 @@ pub enum Act {
     RevealSelected,
     RecycleSelected,
     OpenConfig,
+    /// 主界面 / 迷你条回到默认位置（拖到看不见的地方时用）
+    ResetPosition,
     Quit,
     LyricMenu,
     LyricSearch,

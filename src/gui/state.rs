@@ -116,6 +116,11 @@ pub fn initial_origin(p: &Player) -> (i32, i32) {
             return (x, y);
         }
     }
+    default_origin()
+}
+
+/// 默认位置：主显示器中央（按默认布局 625×431 居中）
+pub fn default_origin() -> (i32, i32) {
     use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
     let (sw, sh) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
     ((sw - 625) / 2, (sh - 431) / 2)

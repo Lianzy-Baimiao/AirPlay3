@@ -148,8 +148,11 @@ impl App {
         let start = rects[li];
         let p = R::new(start.x + cx - cx0, start.y + cy - cy0, start.w, start.h);
         let env = snap::Env { taskbar, work_area: &work_area };
-        let q = snap::group_move(&rects, &self.snap_visible(), &moving, li, p, lead == Pane::Bar, &env);
-        let (dx, dy) = (q.x - start.x, q.y - start.y);
+        let vis = self.snap_visible();
+        let q = snap::group_move(&rects, &vis, &moving, li, p, lead == Pane::Bar, &env);
+        // 不能拖到屏幕外：整组限制在光标所在显示器的工作区里
+        let group: Vec<R> = (0..rects.len()).filter(|&i| moving[i] && vis[i]).map(|i| rects[i]).collect();
+        let (dx, dy) = snap::keep_inside(&group, (q.x - start.x, q.y - start.y), super::popup::work_area_at((cx, cy)));
         for (i, pane) in SNAP_ORDER.into_iter().enumerate() {
             if moving[i] {
                 self.place(pane, rects[i].x + dx, rects[i].y + dy);
@@ -220,6 +223,12 @@ impl App {
     #[cfg(debug_assertions)]
     pub fn test_drags(&mut self, spec: &str) {
         for op in spec.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+            if op == "reset" {
+                self.reset_layout();
+                let m = self.minibar.as_ref().map(|m| (m.top.pos, m.bottom.pos));
+                log::info!("自测拖动 reset -> 播放条 {:?} 迷你条 {:?}", self.bar_pos(), m);
+                continue;
+            }
             let Some((who, d)) = op.split_once(':') else { continue };
             if let Some(lead) = ["mtop", "mlyric"].iter().position(|n| who == *n) {
                 let Some((dx, dy)) = d.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?))) else { continue };
