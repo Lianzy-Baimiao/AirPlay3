@@ -10,6 +10,7 @@ use super::source::{Source, Spec};
 
 pub mod ape;
 pub mod bits;
+pub mod mpc;
 pub mod tta;
 pub mod wavpack;
 
@@ -40,7 +41,7 @@ pub trait BlockDecoder: Send {
 }
 
 /// 自带解码器能解的扩展名（与 `open_decoder` 一致）
-pub const EXTS: &[&str] = &["tta", "wv", "ape"];
+pub const EXTS: &[&str] = &["tta", "wv", "ape", "mpc", "mp+", "mpp"];
 
 /// 用自带解码器打开（按扩展名）；不是这些格式时返回 None
 pub fn open_decoder(path: &Path) -> Option<Result<Box<dyn BlockDecoder>>> {
@@ -51,6 +52,7 @@ pub fn open_decoder(path: &Path) -> Option<Result<Box<dyn BlockDecoder>>> {
         "tta" => Some(boxed(tta::TtaDecoder::open(path))),
         "wv" => Some(boxed(wavpack::WvDecoder::open(path))),
         "ape" => Some(boxed(ape::ApeDecoder::open(path))),
+        "mpc" | "mp+" | "mpp" => Some(boxed(mpc::MpcDecoder::open(path))),
         _ => None,
     }
 }

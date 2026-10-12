@@ -67,9 +67,10 @@ fn pick(tags: &[&Tag], get: impl Fn(&Tag) -> Option<String>) -> String {
 pub fn read_tags(path: &Path) -> Option<TagInfo> {
     if !via_carrier(path) {
         if let Some(mut t) = read_lofty(path) {
-            // lofty 有时读不全属性（如多声道 WavPack 的声道数是 0、经标签载体读的没有属性）：
-            // 有自带解码器的格式由它补上
-            if t.channels == 0 || t.sample_rate == 0 || t.duration <= 0.0 {
+            // lofty 有时读不全属性（如多声道 WavPack 的声道数是 0、经标签载体读的没有属性）、或时长不准
+            // （SV7 Musepack 没算无缝播放信息）：有自带解码器的格式由它补上
+            let mpc = matches!(crate::util::ext_lower(path).as_str(), "mpc" | "mp+" | "mpp");
+            if mpc || t.channels == 0 || t.sample_rate == 0 || t.duration <= 0.0 {
                 fill_from_decoder(path, &mut t);
             }
             return Some(t);

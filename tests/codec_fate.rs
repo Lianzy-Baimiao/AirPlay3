@@ -103,6 +103,28 @@ fn run(exts: &[&str], tol: f64) {
     run_slack(exts, tol, 0);
 }
 
+/// 跳转后与参考解码器（同样跳转）的输出对比：参考 PCM 是 refs/<名字>.seek.raw，跳到 index.json 的 seek_at
+fn check_seek_ref(root: &Path, name: &str, tol: f64) -> Result<(), String> {
+    let idx: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("refs/index.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let at = idx[name]["seek_at"].as_u64().ok_or("没有 seek_at")?;
+    let ch = idx[name]["channels"].as_u64().unwrap() as usize;
+    let raw = std::fs::read(root.join("refs").join(format!("{name}.seek.raw"))).map_err(|e| e.to_string())?;
+    let want: Vec<f32> = raw.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+    let mut src = open(&root.join("fate").join(name)).ok_or("不认识的格式")?.map_err(|e| e.to_string())?;
+    src.seek(at).map_err(|e| e.to_string())?;
+    let (mut got, mut buf) = (Vec::new(), Vec::new());
+    while src.read(&mut buf).map_err(|e| e.to_string())? > 0 {
+        got.extend_from_slice(&buf);
+    }
+    if got.len() != want.len() {
+        return Err(format!("跳到 {at} 后解出 {} 帧，参考 {} 帧", got.len() / ch, want.len() / ch));
+    }
+    match got.iter().zip(&want).position(|(a, b)| (a - b).abs() as f64 > tol) {
+        Some(i) => Err(format!("跳到 {at} 后第 {i} 个样本：{} ≠ {}", got[i], want[i])),
+        None => Ok(()),
+    }
+}
+
 /// `slack`：截断的文件（参考比文件头说的短）允许少解这么多帧。ffmpeg 对最后不完整的一帧会把读过头的
 /// 填充也当数据解出来，我们只输出能确定的部分
 fn run_slack(exts: &[&str], tol: f64, slack: usize) {
@@ -117,6 +139,10 @@ fn run_slack(exts: &[&str], tol: f64, slack: usize) {
         .filter(|n| exts.iter().any(|x| n.ends_with(x)) && !n.starts_with("encrypted"))
         .collect();
     names.sort();
+    if names.is_empty() {
+        eprintln!("{} 下没有 {exts:?} 样本，跳过", root.display());
+        return;
+    }
     let mut bad = Vec::new();
     for n in &names {
         match compare(&root, n, tol) {
@@ -148,7 +174,6 @@ fn run_slack(exts: &[&str], tol: f64, slack: usize) {
             }
         }
     }
-    assert!(!names.is_empty(), "没有 {exts:?} 样本");
     assert!(bad.is_empty(), "{} 个样本不对：{bad:?}", bad.len());
 }
 
@@ -271,6 +296,65 @@ fn ape_float_tags() {
     assert!((t.duration - 9.5).abs() < 0.01 && t.sample_rate == 44_100 && t.channels == 2 && t.bitrate > 100);
 }
 
+/// Musepack：与 libmpcdec（浮点版）逐样本对比，包括跳转以后。AP3_FATE 指向 mpcgen.py 生成的 mpcextra
+/// （FFmpeg FATE 的参考是定点解码、没有去掉开头 481 个采样点的合成延迟，见 mpc_ffmpeg）
+#[test]
+#[ignore]
+fn mpc() {
+    let Some(root) = root() else { return };
+    let mut names: Vec<String> = std::fs::read_dir(root.join("fate")).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".mpc")).collect();
+    names.sort();
+    // 参考必须是 libmpcdec 解出来的（mpcgen.py 生成，带 seek_at）；FFmpeg 的参考见 mpc_ffmpeg
+    let idx = std::fs::read_to_string(root.join("refs/index.json")).unwrap_or_default();
+    if names.is_empty() || !idx.contains("seek_at") {
+        eprintln!("{} 下没有 mpcgen.py 生成的 Musepack 样本，跳过", root.display());
+        return;
+    }
+    let mut bad = Vec::new();
+    for n in &names {
+        let r = compare(&root, n, 0.0);
+        let ok = matches!(&r, Ok(r) if r.mismatch.is_none() && r.frames == r.ref_frames);
+        match &r {
+            Ok(r) => println!("{} {n:20} {} / 参考 {} 帧，最大误差 {:.3e}  {:.0}x 实时", if ok { "OK " } else { "XX " }, r.frames, r.ref_frames, r.max_diff, r.frames as f64 / 44_100.0 / r.secs.max(1e-9)),
+            Err(e) => println!("XX  {n:20} {e}"),
+        }
+        let seek = check_seek_ref(&root, n, 0.0);
+        if let Err(e) = &seek {
+            println!("XX  {n} {e}");
+        }
+        if !ok || seek.is_err() {
+            bad.push(n.clone());
+        }
+    }
+    assert!(bad.is_empty(), "{bad:?}");
+}
+
+/// Musepack 与 FFmpeg 的参考对比（FFmpeg 是定点解码，没有去掉合成延迟：它的第 481 个采样点是我们的第 0 个）。
+/// AP3_FATE 指向 FFmpeg FATE 的样本目录（不是 mpcextra）
+#[test]
+#[ignore]
+fn mpc_ffmpeg() {
+    let Some(root) = root() else { return };
+    let idx = std::fs::read_to_string(root.join("refs/index.json")).unwrap_or_default();
+    if !idx.contains("musepack") {
+        eprintln!("refs 不是 FFmpeg 的参考，跳过");
+        return;
+    }
+    for n in ["inside-mp7.mpc", "inside-mp8.mpc"] {
+        let (_, ch, _, want) = reference(&root, n).unwrap();
+        let mut dec = open_decoder(&root.join("fate").join(n)).unwrap().unwrap();
+        let (mut got, mut b) = (Vec::new(), Block::default());
+        while dec.decode(&mut b).unwrap() > 0 {
+            got.extend(b.float.iter().map(|&x| x as f64));
+        }
+        let off = 481 * ch;
+        let common = got.len().min(want.len() - off);
+        let max = (0..common).map(|i| (got[i] - want[i + off]).abs()).fold(0.0, f64::max);
+        println!("{n}: {} 帧，与 ffmpeg 最大误差 {max:.3e}", got.len() / ch);
+        assert!(max < 2e-3, "{n} 与 ffmpeg 差太多：{max}");
+    }
+}
+
 /// Monkey's Audio：3.80 ~ 3.99 各版本、各压缩级别、24 位、截断的文件
 #[test]
 #[ignore]
@@ -289,7 +373,7 @@ fn wavpack() {
 #[ignore]
 fn tta() {
     run(&[".tta"], 0.0);
-    if let Some(root) = root() {
+    if let Some(root) = root().filter(|r| r.join("fate/encrypted.tta").exists()) {
         let e = open_decoder(&root.join("fate/encrypted.tta")).unwrap().err().map(|e| e.to_string()).unwrap_or_default();
         assert!(e.contains("加密"), "加密的 TTA 应该给出明确的提示：{e}");
     }
