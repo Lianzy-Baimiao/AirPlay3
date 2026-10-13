@@ -1,5 +1,5 @@
 //! 自带的解码器：原版支持、而 symphonia / Media Foundation 不支持的格式（TTA、WavPack、Monkey's Audio、
-//! Musepack、TAK、DTS）。都是纯 Rust，按扩展名选用；每个解码器一次解出一块（一帧 / 一个 block），
+//! Musepack、TAK、DTS）。都是纯 Rust，按扩展名选用（WAV 里装的 DTS 看内容）；每个解码器一次解出一块（一帧 / 一个 block），
 //! 由 `BlockSource` 转成播放用的 f32 并做到精确到样本的跳转。
 
 use std::path::Path;
@@ -10,6 +10,7 @@ use super::source::{Source, Spec};
 
 pub mod ape;
 pub mod bits;
+pub mod dts;
 pub mod mpc;
 pub mod tak;
 pub mod tta;
@@ -42,9 +43,9 @@ pub trait BlockDecoder: Send {
 }
 
 /// 自带解码器能解的扩展名（与 `open_decoder` 一致）
-pub const EXTS: &[&str] = &["tta", "wv", "ape", "mpc", "mp+", "mpp", "tak"];
+pub const EXTS: &[&str] = &["tta", "wv", "ape", "mpc", "mp+", "mpp", "tak", "dts", "dtshd"];
 
-/// 用自带解码器打开（按扩展名）；不是这些格式时返回 None
+/// 用自带解码器打开（按扩展名；WAV 里装的是 DTS 码流时也是）；不是这些格式时返回 None
 pub fn open_decoder(path: &Path) -> Option<Result<Box<dyn BlockDecoder>>> {
     fn boxed<D: BlockDecoder + 'static>(r: Result<D>) -> Result<Box<dyn BlockDecoder>> {
         r.map(|d| Box::new(d) as Box<dyn BlockDecoder>)
@@ -55,6 +56,8 @@ pub fn open_decoder(path: &Path) -> Option<Result<Box<dyn BlockDecoder>>> {
         "ape" => Some(boxed(ape::ApeDecoder::open(path))),
         "mpc" | "mp+" | "mpp" => Some(boxed(mpc::MpcDecoder::open(path))),
         "tak" => Some(boxed(tak::TakDecoder::open(path))),
+        "dts" | "dtshd" => Some(boxed(dts::DtsDecoder::open(path))),
+        "wav" if dts::is_dts_wav(path) => Some(boxed(dts::DtsDecoder::open(path))),
         _ => None,
     }
 }

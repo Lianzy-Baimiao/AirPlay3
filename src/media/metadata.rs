@@ -27,7 +27,7 @@ pub struct TagInfo {
 
 /// lofty 不认识、标签另外读的格式（见 `carrier`）；音频属性由自带解码器提供
 fn via_carrier(path: &Path) -> bool {
-    matches!(crate::util::ext_lower(path).as_str(), "tta" | "tak")
+    matches!(crate::util::ext_lower(path).as_str(), "tta" | "tak" | "dts" | "dtshd")
 }
 
 fn open(path: &Path, cover: bool) -> Option<lofty::file::TaggedFile> {
@@ -69,8 +69,11 @@ pub fn read_tags(path: &Path) -> Option<TagInfo> {
         if let Some(mut t) = read_lofty(path) {
             // lofty 有时读不全属性（如多声道 WavPack 的声道数是 0、经标签载体读的没有属性）、或时长不准
             // （SV7 Musepack 没算无缝播放信息）：有自带解码器的格式由它补上
-            let mpc = matches!(crate::util::ext_lower(path).as_str(), "mpc" | "mp+" | "mpp");
-            if mpc || t.channels == 0 || t.sample_rate == 0 || t.duration <= 0.0 {
+            // WAV 里装的 DTS：lofty 当成 PCM，属性都不对
+            let ext = crate::util::ext_lower(path);
+            let mpc = matches!(ext.as_str(), "mpc" | "mp+" | "mpp");
+            let dts_wav = ext == "wav" && crate::audio::codec::dts::is_dts_wav(path);
+            if mpc || dts_wav || t.channels == 0 || t.sample_rate == 0 || t.duration <= 0.0 {
                 fill_from_decoder(path, &mut t);
             }
             return Some(t);

@@ -439,6 +439,145 @@ fn tak_seek() {
     }
 }
 
+/// .dtshd 的 AUPR-HDR：(采样率, 原始样本数, 开头的填充)
+fn dtshd_aupr(path: &Path) -> Option<(u64, u64, u64)> {
+    let d = std::fs::read(path).ok()?;
+    let mut p = 0;
+    while p + 16 <= d.len() {
+        let n = u64::from_be_bytes(d[p + 8..p + 16].try_into().unwrap()) as usize;
+        if &d[p..p + 8] == b"AUPR-HDR" {
+            let b = &d[p + 16..];
+            let rate = u32::from_be_bytes([0, b[3], b[4], b[5]]) as u64;
+            let orig = (u32::from_be_bytes(b[12..16].try_into().unwrap()) as u64) << 8 | b[16] as u64;
+            return Some((rate, orig, u16::from_be_bytes([b[19], b[20]]) as u64));
+        }
+        p += 16 + n;
+    }
+    None
+}
+
+/// DTS（dtskit.py 生成的套件）：与 `ffmpeg -flags bitexact` 的定点输出逐样本相同。含 DTS-HD MA 无损部分的
+/// 与 `-core_only 1` 对比（XLL 还不支持）；.dtshd 与同一码流的裸文件对比，按 AUPR-HDR 去掉开头、截掉结尾
+#[test]
+#[ignore]
+fn dts() {
+    use airplay3::audio::codec::BlockDecoder;
+    use airplay3::audio::codec::dts::DtsDecoder;
+    let Some(root) = root().filter(|r| r.join("fate/dts_es_14le.wav").exists()) else {
+        eprintln!("没有 dtskit.py 生成的样本，跳过");
+        return;
+    };
+    let idx: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("refs/index.json")).unwrap()).unwrap();
+    let mut bad = Vec::new();
+    for (name, info) in idx.as_object().unwrap() {
+        let path = root.join("fate").join(name);
+        let hdma = info["hdma"].as_bool().unwrap();
+        let dtshd = name.ends_with(".dtshd");
+        let raw = if dtshd { name.replace(".dtshd", ".dts") } else { name.clone() };
+        let (tag, key) = if hdma { (".core", "core_") } else { ("", "") };
+        let ref_frames = idx[&raw][format!("{key}frames")].as_u64().unwrap() as usize;
+        if ref_frames == 0 {
+            // 没有核心子流（只有 XLL）：要报错而不是乱解
+            let r = DtsDecoder::open_with(&path, hdma);
+            println!("{} {name:34} 没有核心：{}", if r.is_err() { "OK " } else { "XX " }, r.as_ref().err().map_or(String::new(), |e| e.to_string()));
+            if r.is_ok() {
+                bad.push(name.clone());
+            }
+            continue;
+        }
+        let ch = info[format!("{key}channels")].as_u64().unwrap() as usize;
+        let data = std::fs::read(root.join("refs").join(format!("{raw}{tag}.raw"))).unwrap();
+        let want: Vec<i32> = data.chunks_exact(4).map(|c| i32::from_le_bytes(c.try_into().unwrap()) >> 8).collect();
+        let mut dec = match DtsDecoder::open_with(&path, hdma) {
+            Ok(d) => d,
+            Err(e) => {
+                println!("XX {name:34} {e}");
+                bad.push(name.clone());
+                continue;
+            }
+        };
+        let spec = dec.spec();
+        // .dtshd：去掉开头的填充（按 AUPR 的采样率计，换算到输出的采样率）
+        let (skip, take) = match dtshd.then(|| dtshd_aupr(&path)).flatten() {
+            Some((rate, orig, pad)) => {
+                let sc = |v: u64| (v * spec.rate as u64 / rate) as usize;
+                (sc(pad), sc(orig))
+            }
+            None => (0, ref_frames),
+        };
+        let want = &want[(skip * ch).min(want.len())..((skip + take) * ch).min(want.len())];
+        let (mut got, mut b) = (Vec::new(), Block::default());
+        while dec.decode(&mut b).unwrap() > 0 {
+            got.extend_from_slice(&b.int);
+        }
+        let same = got.iter().zip(want).take_while(|(g, w)| g == w).count();
+        // 总长：.dtshd 与码率固定的是准的，码率可变的裸码流是估计（差 2% 以内）
+        let total = dec.total_frames().unwrap_or(0) as f64;
+        let total_ok = if dtshd { total == take as f64 } else { (total - take as f64).abs() <= take as f64 * 0.02 };
+        let ok = spec.channels as usize == ch && got.len() == want.len() && same == want.len() && total_ok;
+        println!(
+            "{} {name:34} {}ch {}Hz {} / 参考 {} 帧，总长 {:?}{}",
+            if ok { "OK " } else { "XX " },
+            spec.channels,
+            spec.rate,
+            got.len() / ch.max(1),
+            want.len() / ch,
+            dec.total_frames(),
+            if same < want.len() { format!("，第 {same} 个样本起不同") } else { String::new() }
+        );
+        if !ok {
+            bad.push(name.clone());
+        } else if want.len() / ch > 50_000 {
+            // 跳到中间：先解前面的包补上历史。ADPCM 的历史误差是逐渐消失的，不保证逐位相同，
+            // 允许 16 / 2^23（约 -114 dB）以内
+            let at = want.len() / ch / 2 + 1234;
+            let mut src = open(&path).unwrap().unwrap();
+            src.seek(at as u64).unwrap();
+            let (mut g, mut buf) = (Vec::new(), Vec::new());
+            while g.len() < 8192 * ch && src.read(&mut buf).unwrap() > 0 {
+                g.extend_from_slice(&buf);
+            }
+            let w = &want[at * ch..(at + 8192) * ch];
+            let diff: Vec<(usize, f64)> =
+                g.iter().zip(w).enumerate().map(|(k, (&a, &b))| (k, (a as f64 * 8388608.0 - b as f64).abs())).filter(|d| d.1 > 16.0).collect();
+            if !diff.is_empty() {
+                let max = diff.iter().map(|d| d.1).fold(0.0, f64::max);
+                println!(
+                    "XX {name} 跳到 {at} 后 {} 个样本不同，最大差 {max}，最后一个在第 {} 帧",
+                    diff.len(),
+                    diff.last().unwrap().0 / ch
+                );
+                bad.push(name.clone());
+            }
+        }
+    }
+    // DTS-HD MA（这个文件的 7.1 只在无损部分里，扩展只有 XLL）默认解出有损的 5.1 核心：
+    // 与 ffmpeg 解出的无损 7.1（前 6 个声道的排列相同）比，各声道的信噪比要高
+    let name = "master_audio_7.1_24bit.dts";
+    let data = std::fs::read(root.join("refs").join(format!("{name}.raw"))).unwrap();
+    let want: Vec<f64> = data.chunks_exact(4).map(|c| i32::from_le_bytes(c.try_into().unwrap()) as f64 / 256.0).collect();
+    let mut dec = DtsDecoder::open(&root.join("fate").join(name)).unwrap();
+    let ch = dec.spec().channels as usize;
+    let (mut got, mut b) = (Vec::new(), Block::default());
+    while dec.decode(&mut b).unwrap() > 0 {
+        got.extend(b.int.iter().map(|&s| s as f64));
+    }
+    assert_eq!((ch, got.len() / ch), (6, want.len() / 8), "{name}：声道数或长度不对");
+    for c in 0..ch {
+        let (mut sig, mut err) = (0f64, 0f64);
+        for (g, w) in got.iter().skip(c).step_by(ch).zip(want.iter().skip(c).step_by(8)) {
+            sig += w * w;
+            err += (g - w) * (g - w);
+        }
+        let snr = 10.0 * (sig / err.max(1.0)).log10();
+        println!("{name} 第 {c} 声道（有损 / 无损）信噪比 {snr:.1} dB");
+        // 核心的 LFE 是 8 位、64 倍抽取的（只有很低的频率），信噪比本来就低
+        let lfe = c == 3;
+        assert!(snr > if lfe { 20.0 } else { 40.0 }, "{name} 第 {c} 声道信噪比只有 {snr:.1} dB");
+    }
+    assert!(bad.is_empty(), "{} 个样本不对：{bad:?}", bad.len());
+}
+
 #[test]
 #[ignore]
 fn tta() {

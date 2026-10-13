@@ -1,11 +1,11 @@
 AirPlay3 Rust 重写版 —— 第三方代码声明 / Third-party notices
 ===========================================================
 
-本程序自带的部分解码器改写自以下开源项目，按其许可要求保留声明。其中 TAK 解码器以 LGPL 2.1 或更新版本发布，
-见最后一节与 LICENSE-LGPL-2.1.txt。
+本程序自带的部分解码器改写自以下开源项目，按其许可要求保留声明。其中 TAK、DTS 解码器以 LGPL 2.1 或更新版本
+发布，见最后两节与 LICENSE-LGPL-2.1.txt。
 Some built-in decoders are derived from the following open-source projects; their notices are reproduced
-below as required by their licenses. The TAK decoder is licensed under the LGPL 2.1 or later; see the last
-section and LICENSE-LGPL-2.1.txt.
+below as required by their licenses. The TAK and DTS decoders are licensed under the LGPL 2.1 or later; see
+the last two sections and LICENSE-LGPL-2.1.txt.
 
 
 WavPack 解码（src/audio/codec/wavpack/）
@@ -120,6 +120,38 @@ Rust 改写：Copyright (c) 2026 Lianzy-Baimiao（2026 年改写成 Rust 用于 
 的标签（Releases 页面的 "Source code"）；你可以修改它并重新编译出自己的版本。
 
 Unlike the rest of this program (MIT), the directory src/audio/codec/tak/ is licensed under the
+GNU Lesser General Public License, version 2.1 or (at your option) any later version; the full text
+is in the accompanying LICENSE-LGPL-2.1.txt. The complete corresponding source code of this part
+(and of the whole program) is available at https://github.com/Lianzy-Baimiao/AirPlay3 — the source
+for each release is the tag of that release ("Source code" on the Releases page) — so you can
+modify it and rebuild the program.
+
+This library is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+Lesser General Public License for more details.
+
+
+DTS 解码（src/audio/codec/dts/）—— 以 GNU LGPL 2.1 或更新版本发布
+DTS decoder — derived from FFmpeg (libavcodec/dca_core.c, dca_exss.c, dcadec.c, dcadsp.c, dcadct.c,
+dcadata.c, dcahuff.c, dcamath.h, dcaadpcm.h, synth_filter.c, dca.c, dca_parser.c;
+libavformat/dtshddec.c), https://ffmpeg.org — licensed under the GNU LGPL, version 2.1 or later
+-----------------------------------------------------------------------------------------------
+
+Copyright (C) 2016 foo86 (FFmpeg)
+Copyright (C) 2004 Gildas Bazin
+Copyright (C) 2004 Benjamin Zores
+Copyright (C) 2006 Benjamin Larsson
+Copyright (C) 2007 Konstantin Shishkov
+Copyright (c) 2008 Michael Niedermayer
+Copyright (c) 2012 Paul B Mahol
+Rust 改写：Copyright (c) 2026 Lianzy-Baimiao（2026 年改写成 Rust 用于 AirPlay3）
+
+与本程序其余部分（MIT 许可）不同，src/audio/codec/dts/ 目录以 GNU 宽通用公共许可证（LGPL）
+2.1 或更新版本发布，许可证全文见随附的 LICENSE-LGPL-2.1.txt。这部分的完整源代码（以及整个
+程序的源代码）在 https://github.com/Lianzy-Baimiao/AirPlay3 ，与每个发布版本对应的源代码见该版本
+的标签（Releases 页面的 "Source code"）；你可以修改它并重新编译出自己的版本。
+
+Unlike the rest of this program (MIT), the directory src/audio/codec/dts/ is licensed under the
 GNU Lesser General Public License, version 2.1 or (at your option) any later version; the full text
 is in the accompanying LICENSE-LGPL-2.1.txt. The complete corresponding source code of this part
 (and of the whole program) is available at https://github.com/Lianzy-Baimiao/AirPlay3 — the source
