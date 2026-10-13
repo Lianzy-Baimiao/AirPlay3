@@ -276,6 +276,8 @@ impl App {
             hot_check: s.hot_check,
         };
         sp::paint(&mut s.win.canvas, &m);
+        #[cfg(debug_assertions)]
+        s.win.canvas.dump("lyricdl");
         s.win.present();
     }
 

@@ -12,8 +12,13 @@ fn main() {
     let files: Vec<PathBuf> = args.iter().filter(|a| !a.starts_with("--")).map(PathBuf::from).collect();
     let start_in_tray = args.iter().any(|a| a == "--tray");
 
-    // 单实例：已有实例时把文件交给它（或只激活它的窗口）后退出
-    if !airplay3::platform::instance::acquire() && airplay3::platform::instance::forward(&files) {
+    // 单实例：已有实例时把文件交给它（或只激活它的窗口）后退出。
+    // 仅调试构建：AIRPLAY3_TEST_ALONE 时不管别的实例（自测用的副本不会把测试文件交给用户正在用的程序）
+    #[cfg(debug_assertions)]
+    let alone = std::env::var_os("AIRPLAY3_TEST_ALONE").is_some();
+    #[cfg(not(debug_assertions))]
+    let alone = false;
+    if !alone && !airplay3::platform::instance::acquire() && airplay3::platform::instance::forward(&files) {
         return;
     }
 

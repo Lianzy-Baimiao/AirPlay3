@@ -90,7 +90,16 @@ fn with<R>(f: impl FnOnce(&mut Fonts) -> R) -> R {
             let (mut generic, mut fmt) = (std::ptr::null_mut(), std::ptr::null_mut());
             GdipStringFormatGetGenericTypographic(&mut generic);
             GdipCloneStringFormat(generic, &mut fmt);
-            GdipSetStringFormatFlags(fmt, StringFormatFlagsMeasureTrailingSpaces.0 | StringFormatFlagsNoWrap.0);
+            // 保留 GenericTypographic 自带的标志（NoFitBlackBox 等；去掉的话个别字会错开 1 像素，如「取消」的「消」）
+            let mut flags = 0;
+            GdipGetStringFormatFlags(fmt, &mut flags);
+            flags |= StringFormatFlagsMeasureTrailingSpaces.0 | StringFormatFlagsNoWrap.0;
+            // 仅调试构建：AIRPLAY3_TEXT_FLAGS=<十六进制> 换一组 StringFormat 标志（和原版对比用）
+            #[cfg(debug_assertions)]
+            if let Some(f) = std::env::var("AIRPLAY3_TEXT_FLAGS").ok().and_then(|v| i32::from_str_radix(v.trim_start_matches("0x"), 16).ok()) {
+                flags = f;
+            }
+            GdipSetStringFormatFlags(fmt, flags);
             let dc = CreateCompatibleDC(None);
             let mut g = std::ptr::null_mut();
             GdipCreateFromHDC(dc, &mut g);
@@ -167,10 +176,55 @@ pub fn cached(text: &str, font: Font, hint: Hint) -> std::rc::Rc<Mask> {
     m
 }
 
+/// 遮罩（和 draw_on 的块）的大小：左侧留 1 像素（字形可能略微越界）
+pub fn mask_size(text: &str, font: Font) -> (u32, u32) {
+    let (tw, th) = measure(text, font);
+    (tw.ceil() as u32 + 3, th.ceil() as u32 + 1)
+}
+
+/// 在不透明的底（BGRA，w × h，和 render 的遮罩一样大、字在同一个位置）上直接画字。原版就是这样画的：
+/// GDI+ 的 ClearType 混合与前景、底色都有关，先画遮罩再合成的抗锯齿边会淡一点
+pub fn draw_on(text: &str, font: Font, hint: Hint, c: [u8; 4], px: &mut [[u8; 4]], w: u32, h: u32) {
+    with(|fs| unsafe {
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w as i32,
+                biHeight: -(h as i32),
+                biPlanes: 1,
+                biBitCount: 32,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let dc = CreateCompatibleDC(None);
+        let mut bits = std::ptr::null_mut();
+        let bmp = CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0).unwrap_or_default();
+        if !bits.is_null() {
+            let old = SelectObject(dc, bmp.into());
+            std::ptr::copy_nonoverlapping(px.as_ptr(), bits as *mut [u8; 4], px.len());
+            let mut g = std::ptr::null_mut();
+            GdipCreateFromHDC(dc, &mut g);
+            GdipSetTextRenderingHint(g, hint.gdip());
+            let mut brush: *mut GpSolidFill = std::ptr::null_mut();
+            GdipCreateSolidFill(u32::from_be_bytes([c[3], c[0], c[1], c[2]]), &mut brush);
+            let s: Vec<u16> = text.encode_utf16().collect();
+            let rect = RectF { X: 1.0, Y: 0.0, Width: w as f32, Height: h as f32 };
+            GdipDrawString(g, PCWSTR(s.as_ptr()), s.len() as i32, fs.font(font), &rect, fs.format, brush as *const GpBrush);
+            GdipDeleteBrush(brush as *mut GpBrush);
+            GdipDeleteGraphics(g);
+            let _ = GdiFlush();
+            std::ptr::copy_nonoverlapping(bits as *const [u8; 4], px.as_mut_ptr(), px.len());
+            SelectObject(dc, old);
+        }
+        let _ = DeleteObject(bmp.into());
+        let _ = DeleteDC(dc);
+    })
+}
+
 /// 把文字画成覆盖率遮罩。遮罩左侧留 1 像素（字形可能略微越界）。
 pub fn render(text: &str, font: Font, hint: Hint) -> Mask {
-    let (tw, th) = measure(text, font);
-    let (w, h) = (tw.ceil() as u32 + 3, th.ceil() as u32 + 1);
+    let (w, h) = mask_size(text, font);
     with(|fs| unsafe {
         let bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {

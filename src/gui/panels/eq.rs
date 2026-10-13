@@ -4,8 +4,6 @@ use super::eq_labels as L;
 use super::frame;
 use crate::gui::theme;
 use crate::gui::canvas::{Canvas, R};
-use crate::gui::text::{Font, Hint};
-use crate::skin::icons;
 
 pub const W: i32 = 304;
 pub const H: i32 = 144;
@@ -13,10 +11,9 @@ pub const H: i32 = 144;
 pub const SLIDER_X: [i32; 11] = [36, 89, 109, 129, 149, 169, 189, 209, 229, 249, 269];
 pub const RAIL_TOP: i32 = 29;
 pub const RAIL_H: i32 = 54;
-pub const BTN_ENABLE: R = R::new(13, 112, 79, 22);
-pub const BTN_RESET: R = R::new(94, 112, 78, 22);
-pub const BTN_PRESET: R = R::new(174, 112, 118, 22);
-const FONT: Font = Font::px(12.0, false);
+pub const BTN_ENABLE: R = R::new(12, 111, 80, 23);
+pub const BTN_RESET: R = R::new(92, 111, 80, 23);
+pub const BTN_PRESET: R = R::new(172, 111, 120, 23);
 
 pub struct EqModel<'a> {
     pub enabled: bool,
@@ -72,18 +69,18 @@ pub fn paint(c: &mut Canvas, m: &EqModel) {
     button(c, BTN_ENABLE, if m.enabled { "禁用" } else { "启用" }, true, m.hot_button == Some(0));
     button(c, BTN_RESET, "重置", m.enabled, m.hot_button == Some(1));
     button(c, BTN_PRESET, m.preset, m.enabled, m.hot_button == Some(2));
-    c.icon(icons::TRI_DOWN, BTN_PRESET.right() - 16, BTN_PRESET.y + 4, theme::g(if m.enabled { 150 } else { 70 }));
+    // 预设右边的小三角（原版是 6 × 5.5 的实心三角）
+    let (tx, ty) = (BTN_PRESET.right() as f32 - 12.5, BTN_PRESET.y as f32 + 9.6);
+    super::pill::tri_down(c, tx, ty, 6.0, 5.5, theme::g(if m.enabled { 150 } else { 65 }));
     c.pop_clip();
 }
 
+/// 按钮：和「配置文件存放位置」窗口的按钮一样（外圈暗、里圈亮的两道边），颜色照原版量的
 fn button(c: &mut Canvas, r: R, label: &str, active: bool, hot: bool) {
-    let (fill, edge, text) = match (active, hot) {
-        (true, true) => (theme::g(85), theme::g(130), theme::g(250)),
-        (true, false) => (theme::g(69), theme::g(117), theme::g(230)),
-        (false, _) => (theme::g(40), theme::g(52), theme::g(80)),
+    let [o, i, f, t] = match (active, hot) {
+        (true, true) => [24, 143, 87, 255],
+        (true, false) => [25, 117, 69, 192],
+        (false, _) => [29, 61, 45, 75],
     };
-    c.fill(r, edge);
-    c.fill(r.shrink(1), fill);
-    let (tw, _) = crate::gui::text::measure(label, FONT);
-    c.text(label, FONT, r.x + (r.w - tw as i32) / 2, r.y + 3, text, Hint::ClearType);
+    super::lyricdl::button_rgba(c, r, label, [theme::g(o), theme::g(i), theme::g(f), theme::g(t)]);
 }

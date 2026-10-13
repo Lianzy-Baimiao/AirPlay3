@@ -90,11 +90,12 @@ pub fn dim_ink(tone: Tone) -> Rgba {
     scale(tone.rgb(), DIM * 0.72)
 }
 
-/// 药丸上的文字（左边留 5 像素）
+/// 药丸上的文字（左边留 5 像素）。原版里带中文的字比纯英文的（格式名、热键）高 1 像素
 pub fn pill_text(c: &mut Canvas, r: R, label: &str, tone: Tone, dim: bool) {
     let col = if dim { dim_ink(tone) } else { PILL_TEXT };
     c.push_clip(r.shrink(3));
-    c.text(label, FONT, r.x + 8, r.y + 2, col, Hint::ClearType);
+    let y = if crate::util::text::contains_cjk(label) { r.y + 1 } else { r.y + 2 };
+    c.text(label, FONT, r.x + 8, y, col, Hint::ClearType);
     c.pop_clip();
 }
 
@@ -163,6 +164,19 @@ pub fn plain_check_ex(c: &mut Canvas, r: R, label: &str, on: bool, hot: bool, en
 fn frame(c: &mut Canvas, r: R, enabled: bool, focused: bool) {
     let col = if focused { 0x8F } else if enabled { 0x51 } else { 0x39 };
     ring(c, r, Rgba::gray(col), 1.0);
+}
+
+/// 实心的向下小三角：左上角 (x, y)，宽 w、高 h（抗锯齿）
+pub fn tri_down(c: &mut Canvas, x: f32, y: f32, w: f32, h: f32, col: Rgba) {
+    let tri = Shape::of(vec![S::Poly(vec![(0.0, 0.0), (w, 0.0), (w / 2.0, h)], 0.0)]);
+    let (x0, y0) = (x.floor() as i32, y.floor() as i32);
+    for py in -1..h.ceil() as i32 + 2 {
+        for px in -1..w.ceil() as i32 + 2 {
+            let (cx, cy) = ((x0 + px) as f32 + 0.5 - x, (y0 + py) as f32 + 0.5 - y);
+            let cov = (0.5 - tri.d(cx, cy)).clamp(0.0, 1.0);
+            put(c, x0 + px, y0 + py, col, cov);
+        }
+    }
 }
 
 /// 下拉框：左边是当前的选项，右边一个小三角

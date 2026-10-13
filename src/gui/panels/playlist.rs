@@ -143,7 +143,7 @@ pub fn paint(c: &mut Canvas, m: &PlaylistModel) {
     }
     c.pop_clip();
     scrollbar(c, m, &lay);
-    c.text(m.footer, FONT, 8, lay.footer_y + 11, theme::g(150), Hint::ClearType);
+    c.text(m.footer, FONT, 8, lay.footer_y + 11, theme::g(143), Hint::ClearType);
     c.round_rect(search_r, 9.0, Some(theme::g(26)), Some(theme::g(109)));
     if m.search.is_empty() && !m.search_focus && m.strip_hover > 0.5 {
         c.text("按名称搜索", FONT, search_r.x + 12, search_r.y + 3, theme::g(110), Hint::ClearType);

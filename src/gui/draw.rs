@@ -146,9 +146,49 @@ impl Canvas {
         if s.is_empty() {
             return 0;
         }
-        let m = text::cached(s, font, hint);
-        self.mask(&m, x, y, c);
+        if !self.text_direct(s, font, x, y, c, hint) {
+            let m = text::cached(s, font, hint);
+            self.mask(&m, x, y, c);
+        }
         text::measure(s, font).0.round() as i32
+    }
+
+    /// 字下面全是不透明的像素时，像原版一样让 GDI+ 直接在底色上画（与原版逐像素一致）；
+    /// 有透明的地方返回 false，改用遮罩合成
+    fn text_direct(&mut self, s: &str, font: Font, x: i32, y: i32, c: Rgba, hint: Hint) -> bool {
+        // 仅调试构建：AIRPLAY3_TEXT_MASK=1 时都用遮罩合成（对比用）
+        #[cfg(debug_assertions)]
+        if std::env::var_os("AIRPLAY3_TEXT_MASK").is_some() {
+            return false;
+        }
+        let (bw, bh) = text::mask_size(s, font);
+        let (bw, bh) = (bw as i32, bh as i32);
+        let area = R::new(x - 1, y, bw, bh);
+        let clip = self.clip_rect().inter(&area);
+        if clip.w <= 0 || clip.h <= 0 {
+            return true;
+        }
+        let at = |px: i32, py: i32| (py * self.w + px) as usize;
+        if (clip.y..clip.bottom()).any(|py| (clip.x..clip.right()).any(|px| self.px[at(px, py)][3] != 255)) {
+            return false;
+        }
+        // 块里超出可见范围的部分用最近的可见像素填上（只写回可见的部分）
+        let mut block = Vec::with_capacity((bw * bh) as usize);
+        for by in 0..bh {
+            for bx in 0..bw {
+                let (px, py) = ((area.x + bx).clamp(clip.x, clip.right() - 1), (area.y + by).clamp(clip.y, clip.bottom() - 1));
+                block.push(self.px[at(px, py)]);
+            }
+        }
+        text::draw_on(s, font, hint, [c.0, c.1, c.2, c.3], &mut block, bw as u32, bh as u32);
+        for py in clip.y..clip.bottom() {
+            for px in clip.x..clip.right() {
+                let p = block[((py - area.y) * bw + (px - area.x)) as usize];
+                let i = at(px, py);
+                self.px[i] = [p[0], p[1], p[2], 255];
+            }
+        }
+        true
     }
 
     /// 带柔和暗色光晕的文字（原版播放条标题）

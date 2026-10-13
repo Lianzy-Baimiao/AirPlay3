@@ -49,7 +49,7 @@ pub fn paint(c: &mut Canvas, m: &CoverModel) {
     if m.active || m.status.is_some() {
         let hint = m.status.unwrap_or("歌曲及歌词相关信息均来自互联网");
         let tw = crate::gui::text::measure(hint, FONT).0 as i32;
-        c.text(hint, FONT, (c.w - tw) / 2, body.y + 3, theme::g(150), Hint::ClearType);
+        c.text(hint, FONT, (c.w - tw) / 2, body.y + 4, theme::g(128), Hint::ClearType);
     }
     if !m.active {
         // 标志：「airplay」字样 + 上方焦点颜色的弧线，下面一个渐隐的倒影（与原版相同）

@@ -1,7 +1,7 @@
 //! 「设置用户配置数据及歌词图片缓存保存位置」窗口（照原版逐像素量出来的）：360 × 180，四周宽阴影，
 //! 三选一的位置、显示路径的框（右边「+」选文件夹）、确认 / 取消。
 
-use super::lyricdl::{SHADOW, button_ex, shadow};
+use super::lyricdl::{SHADOW, button_ex, shadow, soft_rect};
 use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::{self, Font, Hint};
 use crate::gui::theme;
@@ -96,10 +96,14 @@ pub fn paint(c: &mut Canvas, m: &CfgDirModel) {
         if m.choice == i {
             tick(c, x, y, Rgba::gray(if hot { 0x22 } else { 0x21 }));
         }
+        // 原版的文字从起点开始裁剪（ClearType 落在起点左边的那一列不画）
+        c.push_clip(R::new(x + 19, y - 4, BODY.right() - x - 19, 20));
         c.text(label, FONT, x + 19, y - 3, Rgba::gray(if hot { 0xFF } else { 0xE0 }), Hint::ClearType);
+        c.pop_clip();
     }
     // 路径框：鼠标在框里时边和底色亮一点；路径太长时像输入框一样显示末尾
-    c.fill(PATH, Rgba::gray(if m.path_hot { 0x63 } else { 0x51 }));
+    // 框的四个角只混进一部分（原版：平时约 60%，亮时约 75%）
+    soft_rect(c, PATH, Rgba::gray(if m.path_hot { 0x63 } else { 0x51 }), if m.path_hot { 0.75 } else { 0.6 });
     c.fill(PATH.shrink(1), theme::g(if m.path_hot { 56 } else { 32 }));
     c.push_clip(PATH_CLIP);
     if m.path.is_empty() {
@@ -113,8 +117,15 @@ pub fn paint(c: &mut Canvas, m: &CfgDirModel) {
         c.text(m.path, FONT, x, PATH.y + 3, Rgba::gray(if m.hot == Some(Hot::Path) { 0xFF } else { 0xE0 }), Hint::ClearType);
     }
     c.pop_clip();
-    let arm = if m.hot == Some(Hot::Plus) { 0xFF } else if m.path_hot { 0xB5 } else { 0xAD };
-    plus(c, PLUS.x + 2, PLUS.y + 2, Rgba::gray(arm));
+    // 加号的黑晕：普通、框亮、加号亮三种浓淡（照原版量的）
+    let (arm, halo) = if m.hot == Some(Hot::Plus) {
+        (0xFF, [46, 114, 137, 196])
+    } else if m.path_hot {
+        (0xB5, [27, 68, 87, 123])
+    } else {
+        (0xAD, [32, 72, 88, 128])
+    };
+    plus(c, PLUS.x + 2, PLUS.y + 2, Rgba::gray(arm), halo);
     if !m.status.is_empty() {
         c.push_clip(R::new(BODY.x + 16, BTN_OK.y, BTN_OK.x - BODY.x - 22, BTN_OK.h));
         c.text(m.status, FONT, BODY.x + 16, BTN_OK.y + 4, theme::g(150), Hint::ClearType);
@@ -152,8 +163,8 @@ fn tick(c: &mut Canvas, x: i32, y: i32, col: Rgba) {
     }
 }
 
-/// 「+」：两条 9 × 3 的粗线，外面一圈淡淡的黑晕（透明度按 3 × 3 邻域里有几格是加号）
-fn plus(c: &mut Canvas, x: i32, y: i32, col: Rgba) {
+/// 「+」：两条 9 × 3 的粗线，外面一圈淡淡的黑晕（透明度按 3 × 3 邻域里有几格是加号：1、2、3、5 格）
+fn plus(c: &mut Canvas, x: i32, y: i32, col: Rgba, halo: [u8; 4]) {
     let on = |dx: i32, dy: i32| (1..=9).contains(&dx) && (4..=6).contains(&dy) || (4..=6).contains(&dx) && (1..=9).contains(&dy);
     for dy in 0..11 {
         for dx in 0..11 {
@@ -164,10 +175,10 @@ fn plus(c: &mut Canvas, x: i32, y: i32, col: Rgba) {
             let n = (-1..=1).flat_map(|j| (-1..=1).map(move |i| (i, j))).filter(|&(i, j)| on(dx + i, dy + j)).count();
             let a = match n {
                 0 => continue,
-                1 => 32,
-                2 => 72,
-                3 => 88,
-                _ => 128,
+                1 => halo[0],
+                2 => halo[1],
+                3 => halo[2],
+                _ => halo[3],
             };
             c.fill(R::new(x + dx, y + dy, 1, 1), Rgba(0, 0, 0, a));
         }

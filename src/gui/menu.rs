@@ -189,6 +189,8 @@ impl Menu {
                 }
             }
         }
+        #[cfg(debug_assertions)]
+        self.canvas.dump("menu");
         self.surface.present(self.hwnd, &self.canvas, self.pos.0, self.pos.1);
     }
 

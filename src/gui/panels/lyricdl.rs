@@ -128,20 +128,39 @@ fn field(c: &mut Canvas, r: R, s: &str, icon: crate::skin::Cell, focused: bool) 
 /// 按钮：外圈暗、里圈亮的两道边，中间是底色（放在灰色底上）
 pub fn button(c: &mut Canvas, r: R, label: &str, enabled: bool, hot: bool) {
     let colors = match (enabled, hot) {
-        (true, true) => (0x33, 0xA0, 0x6E, 0xF8),
-        (true, false) => (0x33, 0x89, 0x5F, 0xE6),
-        _ => (0x3B, 0x59, 0x4B, 0x6C),
+        // 文字颜色照原版量的（直接在底色上画字后，笔画中间就是这个颜色）
+        (true, true) => (0x33, 0xA0, 0x6E, 0xD3),
+        (true, false) => (0x33, 0x89, 0x5F, 0xC4),
+        _ => (0x3B, 0x59, 0x4B, 0x62),
     };
     button_ex(c, r, label, colors);
 }
 
 /// 按钮：(外圈, 里圈, 底色, 文字) 的灰度
 pub fn button_ex(c: &mut Canvas, r: R, label: &str, (outer, inner, fill, ink): (u8, u8, u8, u8)) {
-    c.fill(r, Rgba::gray(outer));
-    c.fill(r.shrink(1), Rgba::gray(inner));
-    c.fill(r.shrink(2), Rgba::gray(fill));
+    button_rgba(c, r, label, [Rgba::gray(outer), Rgba::gray(inner), Rgba::gray(fill), Rgba::gray(ink)]);
+}
+
+/// 同上，颜色是 [外圈, 里圈, 底色, 文字]（均衡器按主题色画）
+pub fn button_rgba(c: &mut Canvas, r: R, label: &str, [outer, inner, fill, ink]: [Rgba; 4]) {
+    // 两道边的四个角只盖住约六成（原版的角圆一点）
+    soft_rect(c, r, outer, 0.6);
+    soft_rect(c, r.shrink(1), inner, 0.635);
+    c.fill(r.shrink(2), fill);
     let tw = text::measure(label, FONT).0 as i32;
-    c.text(label, FONT, r.x + (r.w - tw) / 2, r.y + 3, Rgba::gray(ink), Hint::ClearType);
+    c.text(label, FONT, r.x + (r.w - tw) / 2, r.y + 3, ink, Hint::ClearType);
+}
+
+/// 实心矩形，四个角的像素只按 corner 的比例混进去
+pub fn soft_rect(c: &mut Canvas, r: R, col: Rgba, corner: f32) {
+    c.fill(R::new(r.x + 1, r.y, r.w - 2, r.h), col);
+    c.fill(R::new(r.x, r.y + 1, 1, r.h - 2), col);
+    c.fill(R::new(r.right() - 1, r.y + 1, 1, r.h - 2), col);
+    for (x, y) in [(r.x, r.y), (r.right() - 1, r.y), (r.x, r.bottom() - 1), (r.right() - 1, r.bottom() - 1)] {
+        if c.clip_rect().contains(x, y) {
+            c.blend(x, y, col, corner);
+        }
+    }
 }
 
 fn paint_rows(c: &mut Canvas, m: &LyricDlModel) {
