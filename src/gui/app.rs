@@ -218,7 +218,7 @@ impl App {
             let (p, ref w) = self.wins[i];
             // 关掉的面板在播关闭动画时也要画
             let closing = w.anim.is_some_and(|a| a.dir == super::anim::Dir::Out);
-            if !w.dirty || !(w.visible || closing) || !self.paints(p) {
+            if !w.dirty || !(self.pane_shown(i) || closing) || !self.paints(p) {
                 continue;
             }
             self.paint_pane(i);

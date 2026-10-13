@@ -88,6 +88,10 @@ pub enum Act {
     /// 打开「配置」的某个分页
     SettingsTab(usize),
     Minibar,
+    /// 迷你条模式：打开 / 关掉歌词条（原版右键菜单「迷你歌词」）
+    MiniStrip,
+    /// 迷你条模式：单独打开 / 关掉一个面板（app.wins 的下标）
+    MiniPane(usize),
 }
 
 #[derive(Clone)]

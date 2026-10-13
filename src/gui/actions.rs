@@ -34,7 +34,37 @@ fn cursor() -> (i32, i32) {
 }
 
 impl App {
+    /// 迷你条模式的右键菜单（原版：迷你歌词 / 音乐列表 / 均衡器 | 列表播放顺序 | 配置 | 退出）
+    fn mini_menu(&self) -> Vec<Item> {
+        let s = &self.ui.snap;
+        let Some(m) = self.minibar.as_ref() else { return Vec::new() };
+        let order = PlayMode::ALL.iter().map(|md| check(md.label(), None, s.mode == *md, Act::SetMode(*md))).collect();
+        let (desk, taskbar, on_top) = {
+            let g = self.player.core.lock();
+            (g.settings.desk_lyric.visible, g.settings.taskbar_lyric.visible, g.settings.general.always_on_top)
+        };
+        vec![
+            check("迷你歌词", Some(icons::LYRIC_PIC), m.strip, Act::MiniStrip),
+            check("音乐列表", Some(icons::LIST), m.panes[3], Act::MiniPane(3)),
+            check("均衡器", Some(icons::EQ), m.panes[2], Act::MiniPane(2)),
+            Item::Sep,
+            check("桌面歌词", None, desk, Act::DeskToggle),
+            check("任务栏歌词", None, taskbar, Act::TaskbarToggle),
+            Item::Sep,
+            Item::Sub { label: "列表播放顺序".into(), items: order },
+            Item::Sep,
+            check("始终置顶", None, on_top, Act::ToggleTopmost),
+            item("配置", Act::OpenConfig),
+            item("恢复默认位置", Act::ResetPosition),
+            Item::Sep,
+            item("退出", Act::Quit),
+        ]
+    }
+
     fn main_menu(&self) -> Vec<Item> {
+        if self.minibar.is_some() {
+            return self.mini_menu();
+        }
         let s = &self.ui.snap;
         let order = PlayMode::ALL.iter().map(|m| check(m.label(), None, s.mode == *m, Act::SetMode(*m))).collect();
         // 先取出设置再拼菜单：同一个表达式里两次 core.lock() 时第一个锁要到表达式结束才释放，第二次加锁会自己等自己（死锁）
@@ -149,6 +179,8 @@ impl App {
     pub fn act(&mut self, a: Act) {
         let p = self.player.clone();
         match a {
+            // 迷你条模式下面板的关闭按钮关的是迷你条模式下单独打开的面板（TogglePane 的 0/1/2 = 歌词图片/均衡器/音乐列表）
+            Act::TogglePane(i) if self.minibar.is_some() => self.mini_pane([1, 2, 3][i.min(2)]),
             Act::TogglePane(i) => {
                 let mut g = p.core.lock();
                 let w = &mut g.settings.window;
@@ -315,6 +347,8 @@ impl App {
                 self.settings_tab(t.min(super::settings_model::TABS.len() - 1));
             }
             Act::Minibar => self.toggle_minibar(),
+            Act::MiniStrip => self.mini_strip(None),
+            Act::MiniPane(i) => self.mini_pane(i),
             Act::LyricDir => {
                 let dir = p.core.lock().dirs.lyric_dir();
                 crate::platform::shell::open(&dir.to_string_lossy());

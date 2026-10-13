@@ -1,4 +1,6 @@
-//! 迷你条（原版 minibar）：两条 304×24 的窄条，上面是音量 / 标题 / 上一首·暂停·下一首 / 还原·关闭，下面是滚动歌词。
+//! 迷你条（原版 minibar，2026-10-14 照原版逐项实测）：两条 304×24 的窄条。
+//! 上面的控制条：平时只有已播放时间和标语；鼠标移上去（约 0.45 秒淡入）才出现音量、上一首·暂停·下一首、还原·关闭。
+//! 下面的歌词条：所有歌词排成一行向左滚动（当前句亮），两头淡出；鼠标移上去出现 □（换成歌词图片面板）和 ✕（关掉歌词条）。
 
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
@@ -32,13 +34,31 @@ pub struct Minibar {
     ticks: u32,
     /// 正在淡入 / 淡出（打开迷你条、缩到托盘、退出）
     pub fade: Option<Anim>,
+    /// 悬停的淡入淡出（0 ~ 1）
+    pub hover_t: [f32; 2],
+    /// 歌词条显示着（点它的 □ / ✕ 关掉，右键菜单「迷你歌词」再打开）
+    pub strip: bool,
+    /// 迷你条模式下单独打开的面板（下标与 app.wins 相同，播放条那一格不用）
+    pub panes: [bool; 4],
+    /// 上次画的标语位置（变了就重画）
+    slogan: f32,
+    /// 各行歌词的宽度：(歌词的标识, 宽度)
+    widths: (u64, Vec<i32>),
 }
 
 impl Minibar {
     pub fn new(top: Popup, bottom: Popup, fade: Option<Anim>) -> Minibar {
-        Minibar { top, bottom, hover: [false; 2], drag: None, last: LineState::default(), ticks: 0, fade }
+        Minibar { top, bottom, hover: [false; 2], drag: None, last: LineState::default(), ticks: 0, fade, hover_t: [0.0; 2], strip: true, panes: [false; 4], slogan: -1.0, widths: (0, Vec::new()) }
     }
 }
+
+/// 悬停淡入的速度（每 30 毫秒；原版约 0.45 秒）
+const HOVER_STEP: f32 = 0.07;
+/// 歌词条：两句之间的空隙、当前句的左边在第几个像素、两头淡出的范围（都是照原版量的）
+const TICK_GAP: i32 = 24;
+const TICK_AT: i32 = 150;
+const FADE_FROM: i32 = 8;
+const FADE_TO: i32 = 42;
 
 /// 所有任务栏（主屏 Shell_TrayWnd，其它显示器 Shell_SecondaryTrayWnd）的位置
 fn taskbars() -> Vec<R> {
@@ -73,10 +93,47 @@ pub struct MiniDrag {
     taskbar: Option<R>,
 }
 
-/// 一条迷你条：与播放条相同的半透明玻璃
-fn strip(c: &mut Canvas, hover: bool) {
+/// 一条迷你条的玻璃（原版实测）：平时几乎完全透明（往下渐渐到约 4%），悬停时中间最不透明、往两边变淡，
+/// 越往下越不透明；与播放条的玻璃同一种样子，但系数不同
+fn strip(c: &mut Canvas, hover: f32) {
+    use super::panels::frame;
     c.clear();
-    super::panels::bar::glass(c, R::new(2, 2, W - 4, H - 4), 3.0, if hover { 1.0 } else { 0.0 });
+    let o = R::new(2, 2, W - 4, H - 4);
+    let ba = super::theme::border_alpha() as f32;
+    let h = hover.clamp(0.0, 1.0);
+    let fill = |x: i32, y: i32| {
+        if y < o.y + 1 || y >= o.bottom() - 1 {
+            return frame::HIGHLIGHT;
+        }
+        let t = (y - (o.y + 1)) as f32;
+        let idle = t * 10.0 / 17.0;
+        let hov = (130.4 + 4.0 * t - 0.882 * (x as f32 + 0.5 - 152.5).abs()).max(idle);
+        let a = (ba + idle + (hov - idle) * h).clamp(0.0, 255.0);
+        let (r, g, b) = super::theme::tint((141.0 + 32.0 * t / 17.0 + (159.0 - 141.0 + 0.81 * t - 32.0 * t / 17.0) * h).round() as u8);
+        Rgba(r, g, b, a.round() as u8)
+    };
+    frame::shape(c, o, 3.0, 3.0, |_| frame::HIGHLIGHT, fill);
+}
+
+/// 把 src（预乘颜色）盖到 dst 上
+fn over(dst: &mut Canvas, src: &Canvas) {
+    for (d, s) in dst.px.iter_mut().zip(src.px.iter()) {
+        let k = 255 - s[3] as u32;
+        for i in 0..4 {
+            d[i] = (s[i] as u32 + (d[i] as u32 * k + 127) / 255).min(255) as u8;
+        }
+    }
+}
+
+/// 歌词条的滚动位置：当前句（第 i 句）的左边在 TICK_AT，在第 i 句和第 i+1 句的时间之间匀速移到第 i+1 句的位置；
+/// 返回 (当前句, 第 0 句左边离 TICK_AT 多远)。starts[i] = 第 i 句左边离第 0 句左边多远
+fn ticker_scroll(times: &[f64], starts: &[i32], t: f64) -> (Option<usize>, f64) {
+    let n = times.partition_point(|&s| s <= t);
+    let Some(i) = n.checked_sub(1) else { return (None, 0.0) };
+    let a = starts[i] as f64;
+    let Some((&t1, &b)) = times.get(i + 1).zip(starts.get(i + 1)) else { return (Some(i), a) };
+    let k = if t1 > times[i] { ((t - times[i]) / (t1 - times[i])).clamp(0.0, 1.0) } else { 1.0 };
+    (Some(i), a + (b as f64 - a) * k)
 }
 
 /// 文字后面的暗色光晕：玻璃几乎透明，放在什么背景上都看得清
@@ -106,6 +163,7 @@ impl App {
             return;
         }
         let st = self.line_state();
+        let (playing, slogan) = (self.ui.snap.playing, self.ui.slogan);
         let m = self.minibar.as_mut().unwrap();
         m.ticks = m.ticks.wrapping_add(1);
         let check_z = m.ticks % 15 == 0;
@@ -114,7 +172,14 @@ impl App {
         if m.fade.is_some_and(|a| a.dir == Dir::In && a.t() >= anim::BAR_IN) {
             m.fade = None;
         }
-        if st != m.last || fading {
+        // 悬停淡入淡出、标语切换；播放时时间和歌词条一直在动
+        let mut hov = false;
+        for i in 0..2 {
+            hov |= super::state::approach(&mut m.hover_t[i], if m.hover[i] { 1.0 } else { 0.0 }, HOVER_STEP);
+        }
+        let sl = (m.slogan - slogan).abs() > 1e-3;
+        m.slogan = slogan;
+        if st != m.last || fading || hov || sl || playing {
             m.last = st;
             self.paint_minibar();
         }
@@ -157,45 +222,117 @@ impl App {
     }
 
     pub fn paint_minibar(&mut self) {
-        let (playing, vol, muted) = (self.ui.snap.playing, self.ui.snap.volume, self.ui.snap.muted);
-        let title = self.now.lock().title.clone();
+        use super::panels::bar::{FONT_SLOGAN, SLOGANS, fmt_time};
+        let (playing, vol, muted, pos, dur, slogan) = (self.ui.snap.playing, self.ui.snap.volume, self.ui.snap.muted, self.ui.snap.pos, self.ui.snap.dur, self.ui.slogan);
+        // 歌词条要画的几句：(左边的 x, 文字, 是不是当前句)
+        let lines = self.ticker_lines(pos);
         let Some(m) = self.minibar.as_mut() else { return };
         let alpha = m.fade.map_or(1.0, |a| anim::fade_alpha(&a, a.t().max(0.0)));
+        let [h0, h1] = m.hover_t;
+        // 上面的控制条
         let c = &mut m.top.canvas;
-        strip(c, m.hover[0]);
-        let v = if muted { 0.0 } else { vol };
-        c.round_rect(R::new(7, 6, 5, 12), 2.0, Some(Rgba(0x9F, 0x9F, 0x9F, 107)), None);
-        let fh = (12.0 * v) as i32;
-        c.push_clip(R::new(7, 18 - fh, 5, fh));
-        c.round_rect(R::new(7, 6, 5, 12), 2.0, Some(Rgba(0xE3, 0xE3, 0xE3, 208)), None);
+        strip(c, h0);
+        // 平时：已播放时间（有歌曲时）+ 标语；悬停时时间淡出、标语变淡，音量和按钮淡入
+        if dur > 0.0 && h0 < 1.0 {
+            c.num6x8(&fmt_time(pos), 10, 8, Rgba(207, 207, 207, 128).alpha(((1.0 - h0) * 255.0) as u8));
+        }
+        let text_a = 255.0 * (0.25 + 0.75 * (1.0 - h0));
+        let halo = |a: f32| Rgba(16, 16, 16, (a * 0.8) as u8);
+        c.push_clip(R::new(3, 3, W - 6, H - 6));
+        let k = slogan.clamp(0.0, 1.0);
+        let off = (k * 18.0).round() as i32;
+        let (a0, a1) = ((1.0 - k) * text_a, k * text_a);
+        c.glow_text(SLOGANS[0], FONT_SLOGAN, 56, 5 - off, Rgba::gray(235).alpha(a0 as u8), halo(a0), 3);
+        c.glow_text(SLOGANS[1], FONT_SLOGAN, 56, 23 - off, Rgba::gray(235).alpha(a1 as u8), halo(a1), 3);
         c.pop_clip();
-        let name = if title.is_empty() { "AIRPLAY".to_string() } else { title };
-        c.push_clip(R::new(20, 3, 98, 18));
-        c.glow_text(&name, FONT, 22, 4, Rgba::gray(if m.hover[0] { 235 } else { 200 }), HALO, 2);
-        c.pop_clip();
-        let a = if m.hover[0] { 255 } else { 200 };
-        c.icon(icons::PREV, BTN_PREV.x, BTN_PREV.y - 2, Rgba::gray(230).alpha(a));
-        c.icon(if playing { icons::PAUSE } else { icons::PLAY }, BTN_PLAY.x, BTN_PLAY.y - 2, Rgba::gray(230).alpha(a));
-        c.icon(icons::NEXT, BTN_NEXT.x, BTN_NEXT.y - 2, Rgba::gray(230).alpha(a));
-        c.icon(icons::S_RESTORE, BTN_RESTORE.x, BTN_RESTORE.y, Rgba::gray(220));
-        c.icon(icons::S_CLOSE, BTN_CLOSE.x, BTN_CLOSE.y, Rgba::gray(220));
+        if h0 > 0.0 {
+            let a = (h0 * 255.0) as u8;
+            let pill = R::new(9, 7, 7, 11);
+            let v = if muted { 0.0 } else { vol };
+            c.round_rect(pill, 3.0, Some(Rgba(0x9F, 0x9F, 0x9F, 107).alpha(a)), None);
+            let fh = (pill.h as f32 * v) as i32;
+            c.push_clip(R::new(pill.x, pill.bottom() - fh, pill.w, fh));
+            c.round_rect(pill, 3.0, Some(Rgba(0xE3, 0xE3, 0xE3, 208).alpha(a)), None);
+            c.pop_clip();
+            c.icon(icons::PREV, BTN_PREV.x, BTN_PREV.y - 2, Rgba::gray(230).alpha(a));
+            c.icon(if playing { icons::PAUSE } else { icons::PLAY }, BTN_PLAY.x, BTN_PLAY.y - 2, Rgba::gray(230).alpha(a));
+            c.icon(icons::NEXT, BTN_NEXT.x, BTN_NEXT.y - 2, Rgba::gray(230).alpha(a));
+            c.icon(icons::S_RESTORE, BTN_RESTORE.x, BTN_RESTORE.y, Rgba::gray(220).alpha(a));
+            c.icon(icons::S_CLOSE, BTN_CLOSE.x, BTN_CLOSE.y, Rgba::gray(220).alpha(a));
+        }
         anim::fade(c, alpha);
         #[cfg(debug_assertions)]
-        if m.fade.is_some() {
-            c.dump_seq("MiniTop", self.started.elapsed().as_millis());
+        {
+            c.dump("minitop");
+            if m.fade.is_some() {
+                c.dump_seq("MiniTop", self.started.elapsed().as_millis());
+            }
         }
         m.top.present();
-        // 下方：迷你歌词，长句随进度向左滚动
+        // 下面的歌词条：所有歌词排成一行向左滚动，当前句亮，两头淡出；没有带时间轴的歌词时是空的（与原版相同）
         let c = &mut m.bottom.canvas;
-        strip(c, m.hover[1]);
-        let inner = R::new(8, 3, W - 16, 18);
-        let tw = text::measure(&m.last.text, FONT).0 as i32;
-        let x = if tw <= inner.w { inner.x + (inner.w - tw) / 2 } else { inner.x - ((tw - inner.w) as f32 * m.last.progress) as i32 };
-        c.push_clip(inner);
-        c.glow_text(&m.last.text, FONT, x, 4, Rgba::gray(235), HALO, 2);
-        c.pop_clip();
+        strip(c, h1);
+        if !lines.is_empty() {
+            let mut t = Canvas::new(W, H);
+            t.push_clip(R::new(3, 3, W - 6, H - 6));
+            for (x, s, cur) in &lines {
+                t.glow_text(s, FONT, *x, 3, Rgba::gray(if *cur { 253 } else { 190 }), HALO, 2);
+            }
+            t.pop_clip();
+            let fade = |x: i32| ((x.min(W - 1 - x) - FADE_FROM) as f32 / (FADE_TO - FADE_FROM) as f32).clamp(0.0, 1.0);
+            for y in 0..H {
+                for x in 0..W {
+                    let f = fade(x);
+                    if f < 1.0 {
+                        let p = &mut t.px[(y * W + x) as usize];
+                        for v in p.iter_mut() {
+                            *v = (*v as f32 * f) as u8;
+                        }
+                    }
+                }
+            }
+            over(c, &t);
+        }
+        if h1 > 0.0 {
+            let a = (h1 * 255.0) as u8;
+            c.icon(icons::S_RESTORE, BTN_RESTORE.x, BTN_RESTORE.y, Rgba::gray(220).alpha(a));
+            c.icon(icons::S_CLOSE, BTN_CLOSE.x, BTN_CLOSE.y, Rgba::gray(220).alpha(a));
+        }
         anim::fade(c, alpha);
+        #[cfg(debug_assertions)]
+        c.dump("minibottom");
         m.bottom.present();
+    }
+
+    /// 歌词条上看得见的几句：(左边的 x, 文字, 是不是当前句)
+    fn ticker_lines(&mut self, pos: f64) -> Vec<(i32, String, bool)> {
+        let n = self.now.lock();
+        let Some(m) = self.minibar.as_mut() else { return Vec::new() };
+        let Some(l) = n.lyrics.as_ref().filter(|l| l.synced && !l.lines.is_empty() && m.strip) else { return Vec::new() };
+        let t = pos + n.lyric_offset_ms as f64 / 1000.0 + l.offset_ms as f64 / 1000.0;
+        // 各句的宽度只在换了歌词时量一次
+        let key = (l.lines.len() as u64) ^ l.lines[0].time.to_bits().rotate_left(17) ^ l.lines[l.lines.len() - 1].time.to_bits().rotate_left(31);
+        if m.widths.0 != key || m.widths.1.len() != l.lines.len() {
+            m.widths = (key, l.lines.iter().map(|x| text::measure(&x.text, FONT).0.round() as i32).collect());
+        }
+        let mut starts = Vec::with_capacity(l.lines.len());
+        let mut acc = 0;
+        for w in &m.widths.1 {
+            starts.push(acc);
+            acc += w + TICK_GAP;
+        }
+        let times: Vec<f64> = l.lines.iter().map(|x| x.time).collect();
+        let (cur, scroll) = ticker_scroll(&times, &starts, t);
+        let base = TICK_AT as f64 - scroll;
+        let mut out = Vec::new();
+        for (i, x) in l.lines.iter().enumerate() {
+            let left = (base + starts[i] as f64).round() as i32;
+            if left > W || left + m.widths.1[i] < 0 || x.text.trim().is_empty() {
+                continue;
+            }
+            out.push((left, x.text.clone(), cur == Some(i)));
+        }
+        out
     }
 
     /// 按鼠标位置移动迷你条（吸附算法与主界面面板相同，见 snap.rs）
@@ -249,15 +386,7 @@ impl App {
                     self.minibar_drag(d);
                 } else if !m.hover[which] {
                     m.hover[which] = true;
-                    let mut t = windows::Win32::UI::Input::KeyboardAndMouse::TRACKMOUSEEVENT {
-                        cbSize: size_of::<windows::Win32::UI::Input::KeyboardAndMouse::TRACKMOUSEEVENT>() as u32,
-                        dwFlags: windows::Win32::UI::Input::KeyboardAndMouse::TME_LEAVE,
-                        hwndTrack: hwnd,
-                        dwHoverTime: 0,
-                    };
-                    unsafe {
-                        let _ = windows::Win32::UI::Input::KeyboardAndMouse::TrackMouseEvent(&mut t);
-                    }
+                    self.track_leave(hwnd);
                     self.paint_minibar();
                 }
             }
@@ -276,6 +405,17 @@ impl App {
                     self.toggle_minibar();
                 } else if which == 0 && BTN_CLOSE.shrink(-2).contains(x, y) {
                     self.request_close();
+                } else if which == 1 && BTN_RESTORE.shrink(-2).contains(x, y) {
+                    // 歌词条的 □：换成歌词图片面板（原版）
+                    self.mini_strip(Some(false));
+                    if self.minibar.as_ref().is_some_and(|m| !m.panes[1]) {
+                        self.mini_pane(1);
+                    }
+                    return Some(LRESULT(0));
+                } else if which == 1 && BTN_CLOSE.shrink(-2).contains(x, y) {
+                    // 歌词条的 ✕：关掉歌词条（右键菜单「迷你歌词」再打开）
+                    self.mini_strip(Some(false));
+                    return Some(LRESULT(0));
                 } else {
                     let rect = |p: &Popup| R::new(p.pos.0, p.pos.1, W, H);
                     m.drag = Some(MiniDrag { lead: which, cursor: super::resize::cursor(), rects: [rect(&m.top), rect(&m.bottom)], taskbar: super::resize::taskbar_rect() });

@@ -231,8 +231,9 @@ impl App {
     }
 
     /// 这个窗口现在要不要画（缩到托盘、最小化、迷你条时看不见的窗口不画）
-    pub fn paints(&self, _p: Pane) -> bool {
-        self.away.is_none() && self.minibar.is_none()
+    pub fn paints(&self, p: Pane) -> bool {
+        // 迷你条模式下播放条是藏着的，单独打开的面板照常画
+        self.away.is_none() && (self.minibar.is_none() || p != Pane::Bar)
     }
 
     /// 所有关闭动画都播完了（面板、播放条、迷你条）
@@ -298,6 +299,14 @@ impl App {
                         let _ = ShowWindow(m.bottom.hwnd, SW_HIDE);
                     }
                     m.fade = None;
+                }
+                // 迷你条模式下单独打开的面板一起藏起来（还原时再长出来）
+                for (_, w) in self.wins.iter_mut().skip(1) {
+                    w.anim = None;
+                    w.dirty = true;
+                    unsafe {
+                        let _ = ShowWindow(w.hwnd, SW_HIDE);
+                    }
                 }
                 self.away = Some(Away::Tray);
             }
@@ -396,6 +405,13 @@ impl App {
             if !m.fade.is_some_and(|a| a.dir == Dir::Out) {
                 m.fade = Some(Anim::close(false));
             }
+            let panes = m.panes;
+            for (i, (_, w)) in self.wins.iter_mut().enumerate() {
+                if panes[i] && !w.anim.is_some_and(|a| a.dir == Dir::Out) {
+                    w.anim = Some(Anim::close(false));
+                    w.dirty = true;
+                }
+            }
         } else {
             for (p, w) in self.wins.iter_mut() {
                 // 已经在单独关闭的面板接着播自己的动画
@@ -458,10 +474,24 @@ impl App {
             self.after = None;
             let Some(m) = self.minibar.as_mut() else { return };
             m.fade = Some(Anim::open(0.0));
+            let (strip, panes) = (m.strip, m.panes);
             self.paint_minibar();
             if let Some(m) = &self.minibar {
                 m.top.show(true);
-                m.bottom.show(false);
+                if strip {
+                    m.bottom.show(false);
+                }
+            }
+            // 迷你条模式下单独打开的面板也长出来
+            for (i, _) in panes.iter().enumerate().skip(1).filter(|(_, on)| **on) {
+                {
+                    self.wins[i].1.anim = Some(Anim::open(0.0));
+                    self.wins[i].1.dirty = true;
+                    self.paint_pane(i);
+                    unsafe {
+                        let _ = ShowWindow(self.wins[i].1.hwnd, SW_SHOWNOACTIVATE);
+                    }
+                }
             }
             return;
         }
@@ -543,6 +573,51 @@ impl App {
             }
         } else {
             w.anim = Some(Anim::close(true));
+        }
+    }
+
+    /// 迷你条模式：打开 / 关掉歌词条（on = None 时切换）；打开时歌词图片面板让位（原版两者只显示一个）
+    pub fn mini_strip(&mut self, on: Option<bool>) {
+        let Some(m) = self.minibar.as_mut() else { return };
+        let on = on.unwrap_or(!m.strip);
+        m.strip = on;
+        let h = m.bottom.hwnd;
+        let cover = m.panes[1];
+        unsafe {
+            let _ = ShowWindow(h, if on { SW_SHOWNOACTIVATE } else { SW_HIDE });
+        }
+        if on && cover {
+            self.mini_pane(1);
+        }
+        self.paint_minibar();
+    }
+
+    /// 迷你条模式：单独打开 / 关掉一个面板（i = app.wins 的下标），框从中心长出来 / 缩回去
+    pub fn mini_pane(&mut self, i: usize) {
+        let Some(m) = self.minibar.as_mut() else { return };
+        if i == 0 || i >= m.panes.len() {
+            return;
+        }
+        let on = !m.panes[i];
+        m.panes[i] = on;
+        let w = &mut self.wins[i].1;
+        w.dirty = true;
+        if on {
+            w.anim = Some(Anim::open(0.0));
+            self.paint_pane(i);
+            unsafe {
+                let _ = ShowWindow(self.wins[i].1.hwnd, SW_SHOWNOACTIVATE);
+            }
+        } else {
+            w.anim = Some(Anim::close(true));
+        }
+    }
+
+    /// 这个面板现在该不该显示（迷你条模式下看迷你条单独打开的面板）
+    pub fn pane_shown(&self, i: usize) -> bool {
+        match &self.minibar {
+            Some(m) => i != 0 && m.panes[i],
+            None => self.wins[i].1.visible,
         }
     }
 
