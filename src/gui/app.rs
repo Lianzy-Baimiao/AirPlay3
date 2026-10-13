@@ -83,7 +83,6 @@ pub struct App {
     pub sizes: Sizes,
     pub menu: Option<super::menu::Menu>,
     pub search: Option<super::lyricdlwin::LyricSearch>,
-    pub radio_win: Option<super::radiowin::RadioWin>,
     /// 「设置用户配置数据及歌词图片缓存保存位置」窗口
     pub cfgdir: Option<super::cfgdirwin::CfgDirWin>,
     pub settings_win: Option<super::settingswin::SettingsWin>,
@@ -174,8 +173,6 @@ impl App {
                 hwnds.extend([m.top.hwnd, m.bottom.hwnd]);
             }
             hwnds.extend(self.settings_win.as_ref().map(|s| s.win.hwnd));
-            // 「下载歌词」窗口不透明，四周是宽阴影：不雾化（否则阴影里是一大片模糊）
-            hwnds.extend(self.radio_win.as_ref().map(|s| s.win.hwnd));
             for h in hwnds {
                 super::window::set_frost(h, t.frost);
             }
@@ -185,7 +182,7 @@ impl App {
             m.top.dirty = true;
             m.bottom.dirty = true;
         }
-        for w in [self.search.as_mut().map(|s| &mut s.win), self.radio_win.as_mut().map(|r| &mut r.win)].into_iter().flatten() {
+        if let Some(w) = self.search.as_mut().map(|s| &mut s.win) {
             w.dirty = true;
         }
     }
@@ -207,9 +204,6 @@ impl App {
         }
         if self.settings_win.as_ref().is_some_and(|s| s.win.dirty) {
             self.paint_settings();
-        }
-        if self.radio_win.as_ref().is_some_and(|r| r.win.dirty) {
-            self.paint_radio();
         }
         if self.cfgdir.as_ref().is_some_and(|w| w.win.dirty) {
             self.paint_cfgdir();
@@ -328,7 +322,7 @@ pub fn run(player: Player, now: SharedNow, cmds: Sender<Command>, start_hidden: 
     bar_slot.store(bar_hwnd.0 as isize, std::sync::atomic::Ordering::Release);
     let ui = super::state::UiState::new(&player);
     let (async_tx, async_rx) = crossbeam_channel::unbounded();
-    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, radio_win: None, cfgdir: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, smtc: None, async_tx, async_rx };
+    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, cfgdir: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, smtc: None, async_tx, async_rx };
     APP.with(|a| *a.borrow_mut() = Some(app));
     super::wnd::after_create(start_hidden);
     unsafe {

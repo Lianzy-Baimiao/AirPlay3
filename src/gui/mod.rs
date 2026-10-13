@@ -12,7 +12,7 @@ mod lyricwin;
 mod menu;
 mod minibar;
 mod paint;
-mod radiowin;
+mod radiotab;
 pub mod panels;
 mod popup;
 mod resize;

@@ -6,6 +6,29 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use super::actions::AsyncMsg;
 use super::app::{App, WM_APP_ASYNC};
 
+/// 把文字放进剪贴板
+pub(super) fn set_clipboard_text(s: &str) {
+    use windows::Win32::System::DataExchange::*;
+    use windows::Win32::System::Memory::*;
+    let w: Vec<u16> = s.encode_utf16().chain([0]).collect();
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            return;
+        }
+        let _ = EmptyClipboard();
+        if let Ok(h) = GlobalAlloc(GMEM_MOVEABLE, w.len() * 2) {
+            let p = GlobalLock(h) as *mut u16;
+            if !p.is_null() {
+                std::ptr::copy_nonoverlapping(w.as_ptr(), p, w.len());
+                let _ = GlobalUnlock(h);
+                // 成功后剪贴板拥有这块内存
+                let _ = SetClipboardData(13, Some(HANDLE(h.0))); // CF_UNICODETEXT
+            }
+        }
+        let _ = CloseClipboard();
+    }
+}
+
 pub(super) fn clipboard_text() -> Option<String> {
     use windows::Win32::System::DataExchange::*;
     use windows::Win32::System::Memory::*;

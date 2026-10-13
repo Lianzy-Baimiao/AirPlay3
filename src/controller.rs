@@ -108,7 +108,8 @@ fn run_loop(p: Player, now: SharedNow, cmds: Receiver<Command>) {
 /// 加载配置与曲库，创建播放器并启动控制线程。`ctx_slot` 在窗口创建后填入，用于请求重绘。
 /// `repaint`：后台状态变化时通知界面重绘（任意线程调用）
 pub fn start(dirs: DataDirs, repaint: Arc<dyn Fn() + Send + Sync>) -> Controller {
-    let settings: Settings = store::load_json(&dirs.settings_file()).unwrap_or_default();
+    let mut settings: Settings = store::load_json(&dirs.settings_file()).unwrap_or_default();
+    settings.radio.migrate();
     let lib = Library::load(&dirs.library_file());
     log::info!("曲库: {} 首, {} 个列表", lib.tracks.len(), lib.lists.len());
     let player = Player::new(dirs, settings, lib, repaint);

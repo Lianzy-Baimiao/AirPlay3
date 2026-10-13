@@ -46,6 +46,23 @@ pub struct ListUi {
     pub selected: std::collections::HashSet<TrackId>,
     pub anchor: Option<usize>,
     pub thumb_hot: bool,
+    /// 列表面板显示的是「网络电台」（标题条上的页签；配置里打开电台后才有）
+    pub radio: bool,
+    /// 电台：选中的清单（左边一栏）、当前清单里（按搜索过滤后）显示的电台序号、选中的电台
+    pub radio_list: usize,
+    pub radio_rows: Vec<usize>,
+    pub radio_sel: Option<usize>,
+    /// 电台页签的工具栏「粘贴电台清单」在鼠标下
+    pub radio_paste_hot: bool,
+    /// 底部临时显示的提示（粘贴的结果），到时间后换回计数
+    pub note: Option<(String, Instant)>,
+}
+
+impl ListUi {
+    /// 现在显示的行数（歌曲或电台）
+    pub fn rows_len(&self) -> usize {
+        if self.radio { self.radio_rows.len() } else { self.ids.len() }
+    }
 }
 
 pub struct UiState {

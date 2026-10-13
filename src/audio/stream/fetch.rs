@@ -340,9 +340,9 @@ mod tests {
 
     #[test]
     fn urls() {
-        let b = "https://a.com/live/x/index.m3u8?k=1";
-        assert_eq!(join(b, "seg1.ts"), "https://a.com/live/x/seg1.ts");
-        assert_eq!(join(b, "/other/s.aac"), "https://a.com/other/s.aac");
+        let b = "https://a.example.com/live/x/index.m3u8?k=1";
+        assert_eq!(join(b, "seg1.ts"), "https://a.example.com/live/x/seg1.ts");
+        assert_eq!(join(b, "/other/s.aac"), "https://a.example.com/other/s.aac");
         assert_eq!(join(b, "//cdn.b.com/s.ts"), "https://cdn.b.com/s.ts");
         assert_eq!(join(b, "http://c.com/s.ts"), "http://c.com/s.ts");
         assert_eq!(join("http://h.com", "a.ts"), "http://h.com/a.ts");

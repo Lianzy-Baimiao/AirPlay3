@@ -1,8 +1,9 @@
 //! 音乐列表面板（原版 324×431）：工具栏 + ✎ ⇅、左侧列表分栏、21 像素行（标题 • 艺人、右侧时长）、底部计数与搜索框。
+//! 配置里打开网络电台后，标题条上有「音乐列表 / 网络电台」两个页签；电台页签里的分栏是用户粘贴的电台清单。
 
 use super::frame;
 use crate::gui::theme;
-use crate::gui::canvas::{Canvas, R};
+use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::{self, Font, Hint};
 use crate::skin::icons;
 
@@ -13,6 +14,16 @@ pub const MIN: (i32, i32) = (264, 225);
 pub const MAX: (i32, i32) = (804, 821);
 pub const TOOL: [R; 3] = [R::new(18, 24, 15, 15), R::new(67, 24, 15, 15), R::new(116, 24, 15, 15)];
 pub const ROW_H: i32 = 21;
+/// 电台页签的工具栏：「+ 粘贴电台清单」（图标和文字一起点）
+pub const PASTE: R = R::new(14, 22, 110, 19);
+const STRIP_TABS: [&str; 2] = ["音乐列表", "网络电台"];
+
+/// 标题条上两个页签的位置（只在打开了网络电台时有）
+pub fn strip_tabs() -> [R; 2] {
+    let w0 = text::measure(STRIP_TABS[0], FONT).0 as i32;
+    let w1 = text::measure(STRIP_TABS[1], FONT).0 as i32;
+    [R::new(8, 2, w0 + 12, 18), R::new(8 + w0 + 18, 2, w1 + 12, 18)]
+}
 
 /// 随窗口尺寸变化的布局（默认 324×431 时与原版一致）
 #[derive(Clone, Copy, Debug)]
@@ -83,15 +94,36 @@ pub struct PlaylistModel<'a> {
     pub search_focus: bool,
     pub strip_hover: f32,
     pub thumb_hot: bool,
+    /// 标题条上的页签：None = 没打开网络电台；Some(true) = 现在是电台页签
+    pub strip_tabs: Option<bool>,
+    /// 电台页签：「粘贴电台清单」在鼠标下、还一个电台都没有（显示怎么用）
+    pub paste_hot: bool,
+    pub radio_empty: bool,
 }
 
 pub fn paint(c: &mut Canvas, m: &PlaylistModel) {
     let lay = Layout::of((c.w, c.h));
     let (rows_r, tabs_r, search_r) = (lay.rows, lay.tabs, lay.search);
     let body = frame::panel(c, m.strip_hover);
+    if let Some(radio) = m.strip_tabs {
+        for (i, r) in strip_tabs().iter().enumerate() {
+            let on = (i == 1) == radio;
+            let col = if on { Rgba::gray(235) } else { Rgba::gray(150) };
+            c.glow_text(STRIP_TABS[i], FONT, r.x + 6, r.y + 1, col, frame::TITLE_HALO, 2);
+            if on {
+                c.fill(R::new(r.x + 6, r.bottom() - 2, r.w - 12, 1), theme::focus());
+            }
+        }
+    }
     c.push_clip(body);
-    for (i, (r, cell)) in TOOL.iter().zip([icons::T_ADD, icons::T_EDIT, icons::T_SORT]).enumerate() {
-        c.icon(cell, r.x, r.y, theme::g(if m.hot_tool == Some(i) { 200 } else { 93 }));
+    if m.strip_tabs == Some(true) {
+        let col = theme::g(if m.paste_hot { 200 } else { 120 });
+        c.icon(icons::T_ADD, TOOL[0].x, TOOL[0].y, col);
+        c.text("粘贴电台清单", FONT, TOOL[0].x + 21, TOOL[0].y, col, Hint::ClearType);
+    } else {
+        for (i, (r, cell)) in TOOL.iter().zip([icons::T_ADD, icons::T_EDIT, icons::T_SORT]).enumerate() {
+            c.icon(cell, r.x, r.y, theme::g(if m.hot_tool == Some(i) { 200 } else { 93 }));
+        }
     }
     c.fill(R::new(body.x, 42, body.w, 1), theme::g(93));
     c.fill(R::new(tabs_r.right(), tabs_r.y, 1, tabs_r.h), theme::g(93));
@@ -108,7 +140,10 @@ pub fn paint(c: &mut Canvas, m: &PlaylistModel) {
             }
             c.icon(icons::HEADPHONE, 8, y + 2, col);
         }
+        // 名字（电台清单的名字可能很长）不超出这一栏
+        c.push_clip(R::new(tabs_r.x, y - 3, tabs_r.w - 1, 22));
         c.text(name, FONT, 25, y + 1, col, Hint::ClearType);
+        c.pop_clip();
         c.fill(R::new(tabs_r.x + 6, y + 24, tabs_r.w - 12, 1), theme::g(44));
     }
     // 行
@@ -142,6 +177,20 @@ pub fn paint(c: &mut Canvas, m: &PlaylistModel) {
         }
     }
     c.pop_clip();
+    // 电台页签还一个电台都没有：说明怎么加（程序里没有电台地址）
+    if m.radio_empty {
+        let lines = [
+            ("复制电台清单后点上面的「粘贴电台清单」", theme::g(170)),
+            ("（M3U、PLS，或每行「名字,地址」）", theme::g(130)),
+            ("本程序不含任何电台地址", theme::g(100)),
+        ];
+        c.push_clip(rows_r);
+        for (i, (s, col)) in lines.iter().enumerate() {
+            let tw = text::measure(s, FONT).0 as i32;
+            c.text(s, FONT, rows_r.x + (rows_r.w - tw).max(0) / 2, rows_r.y + rows_r.h / 2 - 34 + i as i32 * 22, *col, Hint::ClearType);
+        }
+        c.pop_clip();
+    }
     scrollbar(c, m, &lay);
     c.text(m.footer, FONT, 8, lay.footer_y + 11, theme::g(143), Hint::ClearType);
     c.round_rect(search_r, 9.0, Some(theme::g(26)), Some(theme::g(109)));

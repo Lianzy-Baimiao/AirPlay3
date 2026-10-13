@@ -21,7 +21,7 @@ pub struct Radio {
 }
 
 impl Player {
-    /// 播放电台；`list` = 电台所在的列表（推荐 / 搜索结果 / 收藏）
+    /// 播放电台；`list` = 电台所在的清单（上一个 / 下一个在里面切换）
     pub fn play_station(&self, st: Station, list: Vec<Station>) {
         let token = NEXT_TOKEN.fetch_add(1, Ordering::Relaxed);
         let net = {
@@ -31,7 +31,7 @@ impl Player {
             g.touch_settings();
             g.settings.network.clone()
         };
-        crate::audio::stream::set_network(net.clone());
+        crate::audio::stream::set_network(net);
         self.engine.play(PlayRequest { token, path: st.url.clone().into(), start: 0.0, end: None, seek: 0.0 }, false);
         self.repaint();
     }
@@ -74,12 +74,12 @@ impl Player {
         }
     }
 
-    /// 后台下载电台图标，作为「专辑图片」显示
+    /// 后台下载清单里给的台标（tvg-logo），作为「专辑图片」显示
     pub fn load_station_icon(&self, st: &Station, now: &SharedNow) {
-        if st.favicon.is_empty() {
+        if st.logo.is_empty() {
             return;
         }
-        let (url, name, net, now, p) = (st.favicon.clone(), st.name.clone(), self.core.lock().settings.network.clone(), now.clone(), self.clone());
+        let (url, name, net, now, p) = (st.logo.clone(), st.name.clone(), self.core.lock().settings.network.clone(), now.clone(), self.clone());
         std::thread::spawn(move || {
             let Ok(agent) = crate::lyrics::lrclib::agent(&net) else { return };
             let Ok(bytes) = crate::media::artwork::download(&agent, &url) else { return };

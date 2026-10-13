@@ -44,9 +44,14 @@ pub enum Act {
     RevealSelected,
     RecycleSelected,
     OpenConfig,
-    /// 打开「网络电台」窗口
-    Radio,
-    SetRadioRegion(String),
+    /// 列表面板换到「网络电台」页签（true）/「音乐列表」（false）
+    RadioTab(bool),
+    RadioMenu,
+    RadioPaste,
+    RadioPlay(usize),
+    RadioCopy(usize),
+    RadioRemove(usize),
+    RadioRemoveList(usize),
     /// 主界面 / 迷你条回到默认位置（拖到看不见的地方时用）
     ResetPosition,
     Quit,

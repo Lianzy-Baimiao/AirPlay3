@@ -78,7 +78,7 @@ pub fn after_create(start_hidden: bool) {
             Ok("search") => unsafe {
                 SetTimer(Some(app.bar_hwnd()), TIMER_TEST_SEARCH, 200, None);
             },
-            Ok("radio") => app.open_radio(),
+            Ok("radio") => app.show_radio_tab(true),
             _ => {}
         }
         #[cfg(debug_assertions)]
@@ -100,9 +100,6 @@ impl App {
             return Some(r);
         }
         if let Some(r) = self.settings_msg(hwnd, msg, wp, lp) {
-            return Some(r);
-        }
-        if let Some(r) = self.radio_msg(hwnd, msg, wp, lp) {
             return Some(r);
         }
         if let Some(r) = self.desk_msg(hwnd, msg, wp, lp) {

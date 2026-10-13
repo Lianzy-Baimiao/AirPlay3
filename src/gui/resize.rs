@@ -202,7 +202,7 @@ impl App {
         match pane {
             Pane::List => {
                 self.sizes.list = (r.w, r.h);
-                let max = playlist::Layout::of((r.w, r.h)).max_scroll(self.ui.list.ids.len());
+                let max = playlist::Layout::of((r.w, r.h)).max_scroll(self.ui.list.rows_len());
                 self.ui.list.scroll = self.ui.list.scroll.min(max);
             }
             Pane::Cover => self.sizes.cover = (r.w, r.h),
@@ -268,7 +268,7 @@ impl App {
     }
 
     pub fn scroll_list(&mut self, delta: i32) {
-        let max = playlist::Layout::of(self.sizes.list).max_scroll(self.ui.list.ids.len());
+        let max = playlist::Layout::of(self.sizes.list).max_scroll(self.ui.list.rows_len());
         self.ui.list.scroll = (self.ui.list.scroll + delta).clamp(0, max);
         self.dirty(Pane::List);
     }

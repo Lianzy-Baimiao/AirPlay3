@@ -26,7 +26,7 @@ impl App {
             Drag::EqSlider(i) => return self.eq_at(i, y),
             Drag::Scroll(y0, s0) => {
                 let lay = playlist::Layout::of(self.list_size());
-                let n = self.ui.list.ids.len();
+                let n = self.ui.list.rows_len();
                 let (_, th) = lay.thumb(n, s0);
                 let track = (lay.scroll.h - th - 2).max(1);
                 let max = lay.max_scroll(n);
@@ -48,7 +48,7 @@ impl App {
             }
             Pane::List => {
                 let lay = playlist::Layout::of(self.sizes.list);
-                let (ty, th) = lay.thumb(self.ui.list.ids.len(), self.ui.list.scroll);
+                let (ty, th) = lay.thumb(self.ui.list.rows_len(), self.ui.list.scroll);
                 let thumb = lay.scroll.contains(x, y) && y >= ty && y < ty + th;
                 if thumb != self.ui.list.thumb_hot {
                     self.ui.list.thumb_hot = thumb;
@@ -56,11 +56,13 @@ impl App {
                 }
                 let l = &mut self.ui.list;
                 let row = if lay.rows.contains(x, y) { Some(lay.row_at(y, l.scroll)) } else { None };
-                let row = row.filter(|r| *r < l.ids.len());
-                let tool = playlist::TOOL.iter().position(|r| r.contains(x, y));
-                if row != l.hover || tool != l.hot_tool {
+                let row = row.filter(|r| *r < l.rows_len());
+                let tool = playlist::TOOL.iter().position(|r| r.contains(x, y)).filter(|_| !l.radio);
+                let paste = l.radio && playlist::PASTE.contains(x, y);
+                if row != l.hover || tool != l.hot_tool || paste != l.radio_paste_hot {
                     l.hover = row;
                     l.hot_tool = tool;
+                    l.radio_paste_hot = paste;
                     self.dirty(Pane::List);
                 }
             }
@@ -91,6 +93,12 @@ impl App {
         }
         let (w, _) = self.sizes.size(pane);
         let in_strip = pane != Pane::Bar && y < frame::STRIP_H + 2;
+        // 列表面板标题条上的「音乐列表 / 网络电台」页签
+        if in_strip && pane == Pane::List && self.radio_enabled() {
+            if let Some(i) = playlist::strip_tabs().iter().position(|r| r.contains(x, y)) {
+                return self.show_radio_tab(i == 1);
+            }
+        }
         if in_strip {
             let close = frame::close_rect(w);
             if crate::gui::canvas::R::new(close.x - 3, 0, close.w + 6, frame::STRIP_H + 2).contains(x, y) && self.ui.strip_hover[Self::idx(pane)] > 0.5 {
@@ -188,7 +196,11 @@ impl App {
     }
 
     fn list_down(&mut self, x: i32, y: i32, dbl: bool, ctrl: bool, shift: bool) {
-        if let Some(i) = playlist::TOOL.iter().position(|r| r.contains(x, y)) {
+        let radio = self.ui.list.radio;
+        if radio && playlist::PASTE.contains(x, y) {
+            return self.radio_paste();
+        }
+        if let Some(i) = playlist::TOOL.iter().position(|r| r.contains(x, y)).filter(|_| !radio) {
             return self.act([Act::AddMenu, Act::EditMenu, Act::SortMenu][i].clone());
         }
         let search = playlist::Layout::of(self.sizes.list).search;
@@ -206,13 +218,16 @@ impl App {
         let lay = playlist::Layout::of(self.list_size());
         if lay.scroll.contains(x, y) {
             // 滚动条：按住滑块拖动；点空白处翻页
-            let (ty, th) = lay.thumb(self.ui.list.ids.len(), self.ui.list.scroll);
+            let (ty, th) = lay.thumb(self.ui.list.rows_len(), self.ui.list.scroll);
             if y >= ty && y < ty + th {
                 self.ui.drag = Drag::Scroll(y, self.ui.list.scroll);
             } else {
                 let page = lay.rows.h - playlist::ROW_H;
                 self.scroll_list(if y < ty { -page } else { page });
             }
+            return;
+        }
+        if radio && self.radio_list_down(x, y, dbl) {
             return;
         }
         if !lay.rows.contains(x, y) {
@@ -246,6 +261,13 @@ impl App {
 
     pub fn right_click(&mut self, pane: Pane, x: i32, y: i32) {
         match pane {
+            Pane::List if self.ui.list.radio => {
+                let lay = playlist::Layout::of(self.sizes.list);
+                let l = &mut self.ui.list;
+                l.radio_sel = if lay.rows.contains(x, y) { l.radio_rows.get(lay.row_at(y, l.scroll)).copied() } else { None };
+                self.dirty(Pane::List);
+                self.act(Act::RadioMenu);
+            }
             Pane::List if playlist::Layout::of(self.sizes.list).rows.contains(x, y) => {
                 let lay = playlist::Layout::of(self.sizes.list);
                 let l = &mut self.ui.list;
@@ -276,6 +298,10 @@ impl App {
     }
 
     pub fn on_char(&mut self, ch: u32) {
+        // 电台页签里 Ctrl+V：粘贴电台清单
+        if ch == 22 && self.ui.list.radio && !self.ui.list.search_focus {
+            return self.radio_paste();
+        }
         if !self.ui.list.search_focus {
             return;
         }
@@ -309,6 +335,16 @@ impl App {
             VK_RIGHT => self.player.seek(self.ui.snap.pos + 5.0),
             VK_UP => self.player.volume_step(0.05),
             VK_DOWN => self.player.volume_step(-0.05),
+            VK_DELETE if self.ui.list.radio => {
+                if let Some(i) = self.ui.list.radio_sel {
+                    self.radio_remove(i);
+                }
+            }
+            VK_RETURN if self.ui.list.radio => {
+                if let Some(i) = self.ui.list.radio_sel {
+                    self.play_radio(i);
+                }
+            }
             VK_DELETE => {
                 let ids: Vec<_> = self.ui.list.selected.iter().copied().collect();
                 self.act(Act::RemoveRows(ids));

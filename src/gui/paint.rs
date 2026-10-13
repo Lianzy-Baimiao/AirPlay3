@@ -74,6 +74,11 @@ impl App {
     }
 
     fn paint_list(&mut self, c: &mut Canvas) {
+        if self.ui.list.radio && self.radio_enabled() {
+            return self.paint_radio_list(c);
+        }
+        self.ui.list.radio = false;
+        let radio_tabs = self.radio_enabled().then_some(false);
         self.refresh_list();
         let ui = &self.ui;
         let l = &ui.list;
@@ -121,6 +126,9 @@ impl App {
             search_focus: l.search_focus,
             strip_hover: ui.strip_hover[3],
             thumb_hot: l.thumb_hot,
+            strip_tabs: radio_tabs,
+            paste_hot: false,
+            radio_empty: false,
         };
         playlist::paint(c, &m);
     }

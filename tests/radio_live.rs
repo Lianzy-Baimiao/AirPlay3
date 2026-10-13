@@ -1,5 +1,6 @@
-//! 手动运行的联网测试：几种常见的网络电台（MP3 直播流、HLS + TS、HLS + ADTS、HE-AAC），
-//! 各听几秒，检查有声音、格式合理、没有中断。`cargo test --release --test radio_live -- --ignored --nocapture`
+//! 手动运行的联网测试：把自己的电台清单（M3U、PLS，或每行「名字,地址」）的路径放进 AIRPLAY3_RADIO_LIST，
+//! 每个电台听几秒，检查有声音、格式合理、没有中断（MP3 直播流、HLS + TS / ADTS、HE-AAC 等）。仓库里没有电台地址。
+//! `AIRPLAY3_RADIO_LIST=清单.txt cargo test --release --test radio_live -- --ignored --nocapture`
 
 use airplay3::audio::source::open_source;
 
@@ -30,27 +31,24 @@ fn listen(url: &str, secs: f64) -> Result<(u32, u16, f64, f64, String), String> 
 #[test]
 #[ignore]
 fn stations() {
-    // 手动测试时把地址换成真实的电台
-    let cases = [
-        ("MP3 直播流", "https://a.example.com/live.mp3"),
-        ("Icecast MP3", "https://b.example.com/stream.mp3"),
-        ("MP3 + ICY 节目名", "https://c.example.com/icy-128-mp3"),
-        ("HLS + TS", "https://d.example.com/ts/index.m3u8"),
-        ("HLS + ADTS", "https://e.example.com/adts/index.m3u8"),
-        ("HLS 主播放列表 + ID3/ADTS", "https://f.example.com/master/playlist.m3u8"),
-        ("AAC 直播流", "https://g.example.com/aac"),
-    ];
+    let Some(path) = std::env::var_os("AIRPLAY3_RADIO_LIST") else {
+        println!("没有设置 AIRPLAY3_RADIO_LIST（自己的电台清单文件），跳过");
+        return;
+    };
+    let text = std::fs::read_to_string(&path).expect("读不了电台清单");
+    let list = airplay3::radio::parse_list(&text);
+    assert!(!list.is_empty(), "清单里没有电台");
     let mut ok = 0;
-    for (name, url) in cases {
-        match listen(url, 6.0) {
+    for st in &list {
+        match listen(&st.url, 6.0) {
             Ok((rate, ch, secs, rms, info)) => {
                 // 新闻台有时正好是停顿：有声音（不是全 0）就算正常
                 let good = secs >= 5.0 && rms > 0.0001 && (8000..=96000).contains(&rate);
                 ok += good as usize;
-                println!("{} {name}: {rate} Hz {ch} 声道 听了 {secs:.1}s RMS {rms:.3}  {info}", if good { "OK" } else { "XX" });
+                println!("{} {}: {rate} Hz {ch} 声道 听了 {secs:.1}s RMS {rms:.3}  {info}", if good { "OK" } else { "XX" }, st.name);
             }
-            Err(e) => println!("XX {name}: {e}"),
+            Err(e) => println!("XX {}: {e}", st.name),
         }
     }
-    assert!(ok >= 5, "只有 {ok} 个电台正常");
+    assert!(ok * 10 >= list.len() * 7, "只有 {ok} / {} 个电台正常", list.len());
 }

@@ -518,15 +518,43 @@ impl Default for TaskbarLyricSettings {
     }
 }
 
+/// 网络电台。程序里没有任何电台地址：电台都来自用户自己粘贴的清单。
+/// 默认关着（界面上看不到入口），在配置文件里把 `"radio": { "enabled": true }` 改成 true 才打开
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RadioSettings {
-    /// 收藏的电台
-    pub favorites: Vec<crate::radio::Station>,
-    /// 「推荐」的国家 / 地区代码（空 = 按系统地区）
-    pub country: String,
+    /// 显示「网络电台」（音乐列表上方的页签、主菜单里的一项）
+    pub enabled: bool,
+    /// 用户粘贴进来的电台清单
+    pub lists: Vec<crate::radio::StationList>,
     /// 上次听的电台
     pub last: Option<crate::radio::Station>,
+    /// 旧版本（v3.9 ~ v3.20）收藏的电台：读进来后并入 `lists` 的「收藏」，不再写出
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub favorites: Vec<crate::radio::Station>,
+}
+
+impl RadioSettings {
+    /// 旧配置里收藏的电台并入「收藏」清单
+    pub fn migrate(&mut self) {
+        if self.favorites.is_empty() {
+            return;
+        }
+        let favs = std::mem::take(&mut self.favorites);
+        let i = match self.lists.iter().position(|l| l.name == "收藏") {
+            Some(i) => i,
+            None => {
+                self.lists.push(crate::radio::StationList { name: "收藏".into(), stations: Vec::new() });
+                self.lists.len() - 1
+            }
+        };
+        for mut st in favs {
+            st.group.clear();
+            if !self.lists[i].stations.iter().any(|s| s.url == st.url) {
+                self.lists[i].stations.push(st);
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -566,6 +594,25 @@ mod tests {
         assert_eq!(old.theme, ThemeSettings::default());
         assert_eq!((old.theme.body, old.theme.focus, old.theme.border_alpha, old.theme.frost), ([0x20; 3], [0xFF, 0xA0, 0x40], 0, true));
         assert_eq!(partial.audio.buffer_ms, 60);
+    }
+
+    /// 网络电台默认关着、没有任何电台；旧版本收藏的电台并入「收藏」清单，旧的 topmost 不再读
+    #[test]
+    fn radio_and_topmost_migration() {
+        let d = Settings::default();
+        assert!(!d.radio.enabled && d.radio.lists.is_empty() && d.general.always_on_top);
+        let mut old: Settings = serde_json::from_str(
+            r#"{"general":{"topmost":false},"radio":{"country":"XX","favorites":[{"uuid":"u","name":"电台 A","url":"https://a.example.com/1","country":"某地","favicon":"https://a.example.com/i.png"}]}}"#,
+        )
+        .unwrap();
+        old.radio.migrate();
+        assert!(old.general.always_on_top && !old.radio.enabled);
+        assert_eq!(old.radio.lists.len(), 1);
+        let l = &old.radio.lists[0];
+        assert_eq!((l.name.as_str(), l.stations[0].name.as_str(), l.stations[0].logo.as_str(), l.stations[0].group.as_str()), ("收藏", "电台 A", "https://a.example.com/i.png", ""));
+        // 写出时不再有 favorites
+        let v = serde_json::to_value(&old).unwrap();
+        assert!(v["radio"].get("favorites").is_none() && v["radio"]["enabled"] == false);
     }
 
     /// 旧版本的桌面歌词设置（双行开关、自定义颜色）照样能读，行数从「双行显示」换算

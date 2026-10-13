@@ -23,8 +23,6 @@ pub enum AsyncMsg {
     LyricDir(std::path::PathBuf),
     /// 「配置文件存放位置」窗口的选文件夹对话框关了（取消时为 None）
     DataDir(Option<std::path::PathBuf>),
-    /// 电台列表（请求序号, 结果）
-    Radio(u64, Result<Vec<crate::radio::Station>, String>),
 }
 
 fn cursor() -> (i32, i32) {
@@ -40,9 +38,9 @@ impl App {
         let s = &self.ui.snap;
         let order = PlayMode::ALL.iter().map(|m| check(m.label(), None, s.mode == *m, Act::SetMode(*m))).collect();
         // 先取出设置再拼菜单：同一个表达式里两次 core.lock() 时第一个锁要到表达式结束才释放，第二次加锁会自己等自己（死锁）
-        let (desk, desk_locked, taskbar, on_top) = {
+        let (desk, desk_locked, taskbar, on_top, radio) = {
             let g = self.player.core.lock();
-            (g.settings.desk_lyric.visible, g.settings.desk_lyric.locked, g.settings.taskbar_lyric.visible, g.settings.general.always_on_top)
+            (g.settings.desk_lyric.visible, g.settings.desk_lyric.locked, g.settings.taskbar_lyric.visible, g.settings.general.always_on_top, g.settings.radio.enabled)
         };
         let mut v = vec![
             check("歌词图片", Some(icons::LYRIC_PIC), s.show[0], Act::TogglePane(0)),
@@ -61,7 +59,11 @@ impl App {
             Item::Sep,
             Item::Sub { label: "列表播放顺序".into(), items: order },
             Item::Sep,
-            item("网络电台…", Act::Radio),
+        ]);
+        if radio {
+            v.push(check("网络电台", None, self.ui.list.radio && s.show[2], Act::RadioTab(!(self.ui.list.radio && s.show[2]))));
+        }
+        v.extend([
             check("始终置顶", None, on_top, Act::ToggleTopmost),
             item("配置", Act::OpenConfig),
             item("恢复默认位置", Act::ResetPosition),
@@ -353,8 +355,13 @@ impl App {
                 }
             }
             Act::OpenConfig => self.open_settings(),
-            Act::Radio => self.open_radio(),
-            Act::SetRadioRegion(c) => self.set_radio_region(c),
+            Act::RadioTab(on) => self.show_radio_tab(on),
+            Act::RadioMenu => self.popup(self.radio_menu()),
+            Act::RadioPaste => self.radio_paste(),
+            Act::RadioPlay(i) => self.play_radio(i),
+            Act::RadioCopy(i) => self.radio_copy(i),
+            Act::RadioRemove(i) => self.radio_remove(i),
+            Act::RadioRemoveList(i) => self.radio_remove_list(i),
             Act::ResetPosition => self.reset_layout(),
             Act::Quit => self.quit(),
             _ => {}
@@ -392,7 +399,6 @@ impl App {
                 AsyncMsg::Files(files, list) => {
                     self.player.import(files, list, false);
                 }
-                AsyncMsg::Radio(seq, r) => self.on_radio_list(seq, r),
                 AsyncMsg::LyricResults(seq, r) => {
                     self.on_lyric_results(seq, r);
                     self.paint_search();
