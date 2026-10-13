@@ -1,4 +1,5 @@
-//! 原版风格的弹出菜单（自绘分层窗口：深色底、灰色描边、高亮条、右侧勾选、子菜单箭头）。
+//! 原版风格的弹出菜单（自绘分层窗口：深色底、灰色描边、高亮条、右侧勾选、子菜单箭头）；
+//! 四周 36 像素的柔和阴影是另一个点不到（鼠标穿透）的窗口，与原版的四个阴影窗口相同。
 
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -113,6 +114,30 @@ pub struct Menu {
     pub pos: (i32, i32),
     pub child: Option<Box<Menu>>,
     pub opened: std::time::Instant,
+    /// 菜单下面的阴影窗口（鼠标穿透）
+    shadow: HWND,
+    _shadow_surface: Surface,
+}
+
+/// 阴影比菜单每边宽多少（原版的四个阴影窗口都是 36 像素）
+const SHADOW: i32 = 36;
+
+/// 在菜单 (x, y, w, h) 四周画阴影的窗口：鼠标点上去穿透到下面（原版的阴影窗口是 WS_EX_TRANSPARENT）
+fn shadow_window(x: i32, y: i32, w: i32, h: i32, owner: HWND) -> (HWND, Surface) {
+    let (sw, sh) = (w + 2 * SHADOW, h + 2 * SHADOW);
+    let hwnd = window::create("", x - SHADOW, y - SHADOW, sw, sh, false, Some(owner));
+    window::set_frost(hwnd, false);
+    let mut c = Canvas::new(sw, sh);
+    super::panels::lyricdl::shadow(&mut c, R::new(SHADOW, SHADOW, w, h));
+    let mut s = Surface::new(sw, sh);
+    unsafe {
+        let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        SetWindowLongW(hwnd, GWL_EXSTYLE, ex | (WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE).0 as i32);
+        let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        s.present(hwnd, &c, x - SHADOW, y - SHADOW);
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    }
+    (hwnd, s)
 }
 
 fn layout(items: &[Item]) -> (i32, Vec<(i32, i32)>) {
@@ -137,13 +162,15 @@ impl Menu {
         // 不超出鼠标所在显示器
         let a = super::popup::work_area_at((x, y));
         let (x, y) = (x.min(a.right() - w).max(a.x), y.min(a.bottom() - h).max(a.y));
+        // 阴影先出来，菜单盖在它上面
+        let (shadow, shadow_surface) = shadow_window(x, y, w, h, owner);
         let hwnd = window::create("", x, y, w, h, false, Some(owner));
         unsafe {
             let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
             SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_TOPMOST.0 as i32);
             let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         }
-        let mut m = Menu { hwnd, items, hover: None, canvas: Canvas::new(w, h), surface: Surface::new(w, h), pos: (x, y), child: None, opened: std::time::Instant::now() };
+        let mut m = Menu { hwnd, items, hover: None, canvas: Canvas::new(w, h), surface: Surface::new(w, h), pos: (x, y), child: None, opened: std::time::Instant::now(), shadow, _shadow_surface: shadow_surface };
         m.present();
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOW);
@@ -209,7 +236,18 @@ impl Menu {
             c.close();
         }
         unsafe {
-            let _ = DestroyWindow(self.hwnd);
+            for h in [std::mem::take(&mut self.hwnd), std::mem::take(&mut self.shadow)] {
+                if !h.is_invalid() {
+                    let _ = DestroyWindow(h);
+                }
+            }
         }
+    }
+}
+
+/// 忘了 close 也不留下窗口（菜单、阴影）
+impl Drop for Menu {
+    fn drop(&mut self) {
+        self.close();
     }
 }

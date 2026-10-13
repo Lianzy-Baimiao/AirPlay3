@@ -57,6 +57,7 @@ impl App {
         if let Some(w) = &self.cfgdir {
             w.win.show(true);
         }
+        self.dim_settings(true);
     }
 
     pub fn paint_cfgdir(&mut self) {
@@ -81,6 +82,7 @@ impl App {
         if let Some(mut w) = self.cfgdir.take() {
             w.win.close();
         }
+        self.dim_settings(false);
     }
 
     /// 打开选文件夹的对话框（以这个窗口为父窗口，开着时它不响应）

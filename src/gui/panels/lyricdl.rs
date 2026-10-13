@@ -93,8 +93,8 @@ pub fn shadow(c: &mut Canvas, body: R) {
             }
             let dx = (body.x - x).max(x + 1 - body.right());
             let dy = (body.y - y).max(y + 1 - body.bottom());
-            // 在上下两条里时，沿着条的方向是 x；在左右两条里时是 y
-            let (d, along) = if dy > 0 { (dy, x.min(body.right() - 1 - x) - body.x) } else { (dx, y.min(body.bottom() - 1 - y) - body.y) };
+            // 在上下两条里时，沿着条的方向是 x；在左右两条里时是 y。along = 离较近的那个角多远（两头对称）
+            let (d, along) = if dy > 0 { (dy, (x - body.x).min(body.right() - 1 - x)) } else { (dx, (y - body.y).min(body.bottom() - 1 - y)) };
             let shade = 38.0 * fall(d) * ramp(along as f32);
             let a = if d == 1 && along >= -1 { (73.0 * (0.56 + 0.44 * ((along + 1) as f32 / 30.0).min(1.0))).max(shade) } else { shade };
             if a >= 0.5 {
@@ -267,6 +267,27 @@ pub fn preview_lines(text: &str, n: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::gui::canvas::{Canvas, R};
+
+    /// 阴影四个角一样（原版的四个阴影窗口是对称的；以前右边、下边的角提前 36 像素就淡掉了）
+    #[test]
+    fn shadow_is_symmetric() {
+        let (w, h) = (155, 162);
+        let mut c = Canvas::new(w + 72, h + 72);
+        super::shadow(&mut c, R::new(36, 36, w, h));
+        let a = |x: i32, y: i32| c.px[(y * c.w + x) as usize][3];
+        for y in 0..c.h {
+            for x in 0..c.w {
+                assert_eq!(a(x, y), a(c.w - 1 - x, y), "left/right at {x},{y}");
+                assert_eq!(a(x, y), a(x, c.h - 1 - y), "top/bottom at {x},{y}");
+            }
+        }
+        // 照原版实测：下边阴影的中间一列、右下角附近
+        let bottom: Vec<u8> = (0..24).map(|d| a(36 + w / 2, 36 + h + d)).collect();
+        assert_eq!(bottom, [73, 38, 35, 32, 30, 27, 25, 22, 20, 18, 16, 14, 12, 11, 9, 8, 6, 5, 4, 3, 2, 2, 1, 0]);
+        assert_eq!(a(36 + 120, 36 + h), 73);
+    }
+
     #[test]
     fn preview_strips_tags() {
         let t = "[ti:x]\n[00:01.00]第一句\n\n[00:02.00][00:30.00]第二句\n";

@@ -113,6 +113,12 @@ fn panel_ex(c: &mut Canvas, strip_hover: f32) -> R {
     R::new(o.x + 1, sep_y + 1, o.w - 2, o.bottom() - 1 - (sep_y + 1))
 }
 
+/// 宽 w、高 h 的外框里「主体窗口」的区域：标题条下面的暗线以下，连同两侧和底边的亮线
+/// （原版的主体是单独的一个窗口，开着「配置文件存放位置」时整块变暗；504×386 的配置窗口是 500×365）
+pub fn body_rect(w: i32, h: i32) -> R {
+    R::new(2, 2 + 17, w - 4, h - 4 - 17)
+}
+
 /// 标题条上的关闭按钮区域（悬停时显示；后面的光以它为中心）
 pub fn strip_close(c: &Canvas) -> R {
     close_rect(c.w)
@@ -121,4 +127,15 @@ pub fn strip_close(c: &Canvas) -> R {
 /// 宽 `w` 的面板标题条上的关闭按钮区域
 pub fn close_rect(w: i32) -> R {
     R::new(w - 39, 3, 15, 15)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn body_rect_matches_original_settings() {
+        // 原版「配置」的主体窗口 500×365，在外框 (2, 19)（实测变暗的范围）
+        assert_eq!(body_rect(504, 386), R::new(2, 19, 500, 365));
+    }
 }

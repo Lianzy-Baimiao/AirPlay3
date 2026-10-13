@@ -37,6 +37,20 @@ pub struct SettingsWin {
     pub slider_drag: bool,
     /// 打开时框从中心长出来（原版）、关闭时缩回去；关闭动画播完由 tick_anim 销毁窗口
     pub anim: Option<Anim>,
+    /// 开着「配置文件存放位置」时主体变暗（原版：约 0.47 秒里渐渐盖上 75% 的主体颜色）；Out = 正在变亮回来
+    pub dim: Option<Anim>,
+}
+
+/// 变暗的程度（0 ~ 1）：照原版实测，先快后慢地变暗；关掉对话框时 0.2 秒变亮回来
+fn dim_level(a: &Anim) -> f32 {
+    let t = a.t().max(0.0);
+    match a.dir {
+        Dir::In => {
+            let u = (t / 0.47).min(1.0);
+            1.0 - (1.0 - u) * (1.0 - u)
+        }
+        Dir::Out => 1.0 - (t / 0.2).min(1.0),
+    }
 }
 
 /// 下拉框里显示的当前选项
@@ -101,6 +115,8 @@ impl App {
             drag: None,
             slider_drag: false,
             anim: Some(Anim::open(0.0)),
+            // 「配置文件存放位置」还开着：一打开就是暗的
+            dim: self.cfgdir.is_some().then(|| Anim { t0: std::time::Instant::now() - std::time::Duration::from_secs(1), ..Anim::open(0.0) }),
         });
         self.paint_settings();
         if let Some(s) = &self.settings_win {
@@ -202,7 +218,26 @@ impl App {
             hover_cell: sw.hover_cell,
             strip: if sw.inside { 1.0 } else { 0.0 },
         };
-        sp::paint(&mut sw.win.canvas, &m);
+        let body = {
+            sp::paint(&mut sw.win.canvas, &m);
+            frame::body_rect(sw.win.canvas.w, sw.win.canvas.h)
+        };
+        // 开着「配置文件存放位置」：主体盖上主体颜色（与那个对话框选文件夹时变暗的颜色相同）
+        let dimming = match sw.dim {
+            Some(a) => {
+                let k = dim_level(&a);
+                if k > 0.0 {
+                    let g = crate::gui::theme::g(32);
+                    sw.win.canvas.fill(body, crate::gui::canvas::Rgba(g.0, g.1, g.2, (195.0 * k).round() as u8));
+                }
+                let done = a.t() >= if a.dir == Dir::In { 0.47 } else { 0.2 };
+                if done && a.dir == Dir::Out {
+                    sw.dim = None;
+                }
+                !done
+            }
+            None => false,
+        };
         // 出错、提示的文字写在标题条上
         if !sw.status.is_empty() {
             sw.win.canvas.glow_text(&sw.status, pill::FONT, 10, 3, crate::gui::canvas::Rgba::gray(235), frame::TITLE_HALO, 2);
@@ -221,12 +256,23 @@ impl App {
         #[cfg(debug_assertions)]
         {
             sw.win.canvas.dump("settings");
-            if sw.anim.is_some() || animating {
+            if sw.anim.is_some() || animating || dimming {
                 sw.win.canvas.dump_seq("Settings", self.started.elapsed().as_millis());
             }
         }
         sw.win.present();
-        sw.win.dirty = animating;
+        sw.win.dirty = animating || dimming;
+    }
+
+    /// 「配置文件存放位置」打开 / 关闭时，配置窗口变暗 / 变亮回来
+    pub fn dim_settings(&mut self, on: bool) {
+        if let Some(sw) = self.settings_win.as_mut() {
+            let now_on = sw.dim.is_some_and(|a| a.dir == Dir::In);
+            if on != now_on {
+                sw.dim = Some(if on { Anim::open(0.0) } else { Anim::close(false) });
+                sw.win.dirty = true;
+            }
+        }
     }
 
     fn set_status(&mut self, s: impl Into<String>) {
