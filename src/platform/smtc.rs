@@ -26,6 +26,8 @@ pub struct Smtc {
     /// 上次提交的 (标题, 艺人, 专辑, 图片指针)，没变时不重复提交
     shown: Option<(String, String, String, usize)>,
     playing: Option<bool>,
+    /// 上次设置的 (播放 / 暂停, 上一首, 下一首) 按键开关
+    buttons: Option<(bool, bool, bool)>,
 }
 
 impl Smtc {
@@ -59,7 +61,20 @@ impl Smtc {
         );
         let token = controls.ButtonPressed(&handler)?;
         controls.SetPlaybackStatus(MediaPlaybackStatus::Closed)?;
-        Ok(Smtc { controls, token, shown: None, playing: None })
+        Ok(Smtc { controls, token, shown: None, playing: None, buttons: None })
+    }
+
+    /// 由本程序处理的媒体键（「配置 → 全局热键」的多媒体键盘开关）：播放 / 暂停、上一首、下一首
+    pub fn set_buttons(&mut self, play: bool, prev: bool, next: bool) {
+        if self.buttons == Some((play, prev, next)) {
+            return;
+        }
+        self.buttons = Some((play, prev, next));
+        let c = &self.controls;
+        let r = c.SetIsPlayEnabled(play).and(c.SetIsPauseEnabled(play)).and(c.SetIsStopEnabled(play));
+        if let Err(e) = r.and(c.SetIsPreviousEnabled(prev)).and(c.SetIsNextEnabled(next)) {
+            log::debug!("SMTC 设置按键失败: {e}");
+        }
     }
 
     /// 同步播放状态与歌曲信息（每帧调用，内容没变时不做任何事）

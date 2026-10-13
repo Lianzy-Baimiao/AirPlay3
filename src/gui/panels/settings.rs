@@ -1,189 +1,166 @@
-//! 「配置」窗口（原版风格面板）：顶部分页，下方为勾选框 / 下拉 / 输入框 / 热键 / 按钮。
+//! 「配置」窗口（原版的样子）：左边一列分页（选中的一格是暗色的，与右边的内容连成一片），
+//! 右边是各分页的控件（布局见 `settings_layout`，控件的画法见 `pill`）。
 
 use super::frame;
-use super::search::{button, field};
-use crate::gui::theme;
+use super::pill::{self, FONT};
 use crate::gui::canvas::{Canvas, R, Rgba};
-use crate::gui::settings_model::{Swatch, TAB_COLOR, TAB_DESK, TAB_HOTKEYS, TABS, Widget};
-use crate::gui::text::{self, Font, Hint};
-use crate::skin::icons;
+use crate::gui::settings_layout::{Glyph, Item, Toggle, Widget};
+use crate::gui::settings_model::{Swatch, TABS};
+use crate::gui::text::{self, Hint};
+use crate::gui::theme;
+use crate::skin::sdf::{S, Shape};
 
-pub const W: i32 = 520;
-pub const H: i32 = 450;
-const FONT: Font = Font::px(12.0, false);
-const TAB_Y: i32 = 26;
-const TOP: i32 = 62;
+pub const W: i32 = 504;
+pub const H: i32 = 386;
+/// 分页栏、分隔线的 x；分页的第一格的 y、每格的间距
+const TAB_W: i32 = 98;
+const SEP_X: i32 = 101;
+const TAB_Y: i32 = 50;
+const TAB_PITCH: i32 = 22;
 
-/// 分页按钮：7 个分页均分 (W - 24) 的宽度
 pub fn tab_rect(i: usize) -> R {
-    let slot = (W - 24) / TABS.len() as i32;
-    R::new(12 + i as i32 * slot, TAB_Y, slot - 2, 24)
+    R::new(2, TAB_Y + i as i32 * TAB_PITCH, TAB_W + 1, 20)
 }
 
-pub fn row_h(tab: usize) -> i32 {
-    match tab {
-        TAB_HOTKEYS => 23,
-        TAB_DESK => 24,
-        _ => 28,
-    }
-}
-
-/// 「颜色透明」分页各项的高度（色块、滑块比普通的行高）
-const COLOR_ROWS: [i32; 8] = [28, 22, 58, 22, 22, 30, 24, 28];
-/// 色块的间距（与原版相同：23 × 18）
-pub const SWATCH: (i32, i32) = (23, 18);
-
-/// 第 i 个设置项的区域
-pub fn row_rect(tab: usize, i: usize) -> R {
-    if tab == TAB_COLOR {
-        let y = TOP + COLOR_ROWS.iter().take(i).sum::<i32>();
-        let h = COLOR_ROWS.get(i).copied().unwrap_or(28);
-        return R::new(22, y, W - 44, h - 4);
-    }
-    R::new(22, TOP + i as i32 * row_h(tab), W - 44, row_h(tab) - 4)
-}
-
-/// 色块区域里第几个色块（行 × 16 + 列）
-pub fn swatch_at(r: R, kind: Swatch, x: i32, y: i32) -> Option<usize> {
-    let (col, row) = ((x - r.x) / SWATCH.0, (y - r.y) / SWATCH.1);
-    (x >= r.x && y >= r.y && col < 16 && row < kind.rows()).then_some((row * 16 + col) as usize)
-}
-
-/// 滑块的轨道
-pub fn slider_track(r: R) -> R {
-    R::new(r.x + 110, r.y + r.h / 2 - 2, 220, 4)
-}
-
-/// 滑块上 x 处对应的值（0 ~ 255）
-pub fn slider_value(r: R, x: i32) -> u8 {
-    let t = slider_track(r);
-    (((x - t.x) as f32 / t.w as f32).clamp(0.0, 1.0) * 255.0).round() as u8
-}
-
-/// 设置项中可点击的部分（勾选框整行；下拉 / 输入框 / 热键为右侧控件；按钮为按钮本身）
-pub fn control_rect(tab: usize, i: usize, w: &Widget) -> R {
-    let r = row_rect(tab, i);
-    match w {
-        Widget::Choice(..) | Widget::Text(..) | Widget::Hotkey(_) => R::new(r.x + 110, r.y, r.w - 110, r.h),
-        Widget::Button(label, _) => R::new(r.x, r.y, text::measure(label, FONT).0 as i32 + 28, r.h),
-        Widget::Swatches(k) => R::new(r.x, r.y, 16 * SWATCH.0, k.rows() * SWATCH.1),
-        Widget::Slider(_) => {
-            let t = slider_track(r);
-            R::new(t.x - 6, r.y, t.w + 12, r.h)
-        }
-        _ => r,
-    }
+/// 各控件现在的状态（由窗口算好传进来）
+#[derive(Clone, Default, Debug)]
+pub struct State {
+    /// 勾着
+    pub on: bool,
+    /// 能改（不能改的画暗）
+    pub enabled: bool,
+    /// 画成暗的（灰掉、或关着的热键）
+    pub dim: bool,
+    /// 下拉框、输入框、热键的文字
+    pub value: String,
+    pub focused: bool,
 }
 
 pub struct SettingsModel<'a> {
     pub tab: usize,
-    pub items: &'a [(Widget, bool, String)],
-    pub focus: Option<usize>,
+    pub items: &'a [(Item, State)],
     pub hover: Option<usize>,
     pub hover_tab: Option<usize>,
-    pub capturing: Option<usize>,
     /// 鼠标下的色块
     pub hover_cell: Option<usize>,
-    pub status: &'a str,
+    /// 标题条上的光（鼠标在窗口里时为 1）
+    pub strip: f32,
+}
+
+/// 色块里与当前颜色相同的一格（与原版一样只在完全相同时打勾：默认的焦点颜色不在色块里）
+pub fn swatch_cur(k: Swatch) -> Option<usize> {
+    let t = theme::get();
+    let want = if k == Swatch::Body { t.body } else { t.focus };
+    k.presets().iter().position(|c| *c == want)
+}
+
+/// 一段竖线的渐变（y0 到 y1 从 a 变到 b）
+fn vline(c: &mut Canvas, x: i32, y0: i32, y1: i32, a: u8, b: u8) {
+    for y in y0..y1 {
+        let t = if y1 - y0 > 1 { (y - y0) as f32 / (y1 - y0 - 1) as f32 } else { 0.0 };
+        c.fill(R::new(x, y, 1, 1), Rgba::gray((a as f32 + (b as f32 - a as f32) * t).round() as u8));
+    }
+}
+
+fn tabs(c: &mut Canvas, sel: usize, hover: Option<usize>) {
+    let (col, body) = (theme::g(64), theme::body());
+    let light = |v: Rgba| v.mix(Rgba::gray(255), 65.0 / 255.0);
+    // 标题条下面的暗线；分页栏、内容的底色；左边、底边的亮边
+    c.fill(R::new(3, 19, TAB_W, 1), theme::g(37));
+    c.fill(R::new(SEP_X, 19, 1, 1), theme::g(62));
+    c.fill(R::new(SEP_X + 1, 19, W - SEP_X - 4, 1), theme::g(18));
+    c.fill(R::new(3, 20, TAB_W, 363), col);
+    c.fill(R::new(SEP_X + 1, 20, W - SEP_X - 4, 363), body);
+    c.fill(R::new(2, 19, 1, 364), light(col));
+    c.fill(R::new(3, 383, TAB_W, 1), light(col));
+    c.fill(R::new(SEP_X, 383, 1, 1), light(col));
+    c.fill(R::new(SEP_X + 1, 383, W - SEP_X - 4, 1), light(body));
+    // 选中的一格：暗色，上下各一条线，与右边连成一片
+    let bar = tab_rect(sel);
+    c.fill(R::new(bar.x + 1, bar.y - 1, TAB_W, 1), theme::g(86));
+    c.fill(R::new(bar.x + 1, bar.y, TAB_W + 1, 20), body);
+    c.fill(R::new(bar.x + 1, bar.y + 20, TAB_W, 1), theme::g(86));
+    // 分页栏右边的分隔线：越靠近选中的一格越亮
+    vline(c, SEP_X, 20, bar.y - 1, 95, 124);
+    c.fill(R::new(SEP_X, bar.y - 1, 1, 1), theme::g(104));
+    c.fill(R::new(SEP_X, bar.y + 20, 1, 1), theme::g(104));
+    vline(c, SEP_X, bar.y + 21, 383, 125, 97);
+    for (i, name) in TABS.iter().enumerate() {
+        let r = tab_rect(i);
+        let tw = text::measure(name, FONT).0 as i32;
+        let v = if i == sel { 255 } else if hover == Some(i) { 0xE8 } else { 0xBF };
+        c.text(name, FONT, r.x + (TAB_W - tw) / 2 + 1, r.y + 2, Rgba::gray(v), Hint::ClearType);
+    }
 }
 
 pub fn paint(c: &mut Canvas, m: &SettingsModel) {
-    let body = frame::panel(c, 0.0);
-    c.glow_text("配置", FONT, 10, 4, Rgba::gray(235), frame::TITLE_HALO, 2);
-    c.icon(icons::W_CLOSE, W - 22, 4, Rgba::gray(220));
-    c.push_clip(body);
-    for (i, name) in TABS.iter().enumerate() {
-        let r = tab_rect(i);
-        let active = i == m.tab;
-        if active {
-            c.round_rect(r, 3.0, Some(theme::g(56)), Some(theme::g(96)));
-        } else if m.hover_tab == Some(i) {
-            c.round_rect(r, 3.0, Some(theme::g(42)), None);
-        }
-        let tw = text::measure(name, FONT).0 as i32;
-        c.text(name, FONT, r.x + (r.w - tw) / 2, r.y + 4, if active { theme::focus() } else { theme::g(190) }, Hint::ClearType);
-    }
-    c.fill(R::new(body.x + 8, TAB_Y + 28, body.w - 16, 1), theme::g(64));
-    for (i, (w, on, value)) in m.items.iter().enumerate() {
-        let r = row_rect(m.tab, i);
+    frame::panel(c, m.strip);
+    tabs(c, m.tab, m.hover_tab);
+    for (i, (it, st)) in m.items.iter().enumerate() {
         let hot = m.hover == Some(i);
-        let ty = r.y + (r.h - 16) / 2 + 1;
-        match w {
+        let r = it.r;
+        match &it.w {
+            Widget::Pill { tone, label, glyph, act } => {
+                pill::pill(c, r, *tone, st.dim);
+                if hot && !st.dim {
+                    c.fill(r.shrink(3), Rgba(255, 255, 255, 22));
+                }
+                if let Some(g) = glyph {
+                    draw_glyph(c, *g, r.x + 20, r.y + 10, if st.dim { pill::dim_ink(*tone) } else { pill::PILL_TEXT });
+                }
+                let text = if label.is_empty() { st.value.as_str() } else { label.as_str() };
+                if !text.is_empty() {
+                    pill::pill_text(c, r, text, *tone, st.dim);
+                }
+                if !matches!(act, Toggle::Act(_)) {
+                    pill::pill_box(c, r, *tone, st.on, st.dim);
+                }
+            }
+            Widget::Check(_, label) => pill::plain_check(c, r, label, st.on, hot),
             Widget::Label(s) => {
-                c.text(s, FONT, r.x, ty, theme::g(140), Hint::ClearType);
+                c.text(s, FONT, r.x, r.y + (r.h - 16) / 2 + 1, Rgba::gray(0xA0), Hint::ClearType);
             }
-            Widget::Check(_, label) => {
-                let b = R::new(r.x, r.y + (r.h - 13) / 2, 13, 13);
-                c.round_rect(b, 2.0, Some(theme::g(24)), Some(theme::g(if hot { 170 } else { 110 })));
-                if *on {
-                    c.icon(icons::CHECK, b.x - 1, b.y - 1, theme::focus());
-                }
-                c.text(label, FONT, r.x + 22, ty, theme::g(if hot { 250 } else { 225 }), Hint::ClearType);
+            Widget::Title(s) => {
+                let tw = text::measure(s, FONT).0 as i32;
+                c.text(s, FONT, r.x + (r.w - tw) / 2, r.y, Rgba::gray(0xBB), Hint::ClearType);
             }
-            Widget::Choice(label, ..) | Widget::Text(_, label) => {
-                c.text(label, FONT, r.x, ty, theme::g(200), Hint::ClearType);
-                let cr = control_rect(m.tab, i, w);
-                if matches!(w, Widget::Choice(..)) {
-                    c.round_rect(cr, 3.0, Some(theme::g(if hot { 52 } else { 40 })), Some(theme::g(100)));
-                    c.push_clip(R::new(cr.x, cr.y, cr.w - 20, cr.h));
-                    c.text(value, FONT, cr.x + 8, ty, theme::g(230), Hint::ClearType);
-                    c.pop_clip();
-                    c.icon(icons::TRI_DOWN, cr.right() - 18, cr.y + (cr.h - 15) / 2, theme::g(160));
-                } else {
-                    field(c, cr, value, m.focus == Some(i));
-                }
+            Widget::Drop(_) => pill::dropdown(c, r, &st.value, st.enabled, hot),
+            Widget::Edit(_, hint) => pill::edit(c, r, &st.value, hint, st.enabled, st.focused),
+            Widget::Path(_, hint) => pill::path_box(c, r, &st.value, hint, st.enabled, hot),
+            Widget::Swatches(k) => {
+                let hover = if hot { m.hover_cell } else { None };
+                pill::swatches(c, r, k.presets(), swatch_cur(*k), hover);
             }
-            Widget::Hotkey(a) => {
-                c.text(a.label(), FONT, r.x, ty, theme::g(200), Hint::ClearType);
-                let cr = control_rect(m.tab, i, w);
-                let shown = if m.capturing == Some(i) { "请按下自定义键盘热键" } else { value.as_str() };
-                c.round_rect(cr, 3.0, Some(theme::g(if m.capturing == Some(i) { 60 } else if hot { 46 } else { 34 })), Some(theme::g(90)));
-                c.text(shown, FONT, cr.x + 8, ty, if m.capturing == Some(i) { theme::focus() } else { theme::g(220) }, Hint::ClearType);
-            }
-            Widget::Button(label, _) => button(c, control_rect(m.tab, i, w), label, true, hot),
-            Widget::Swatches(k) => swatches(c, control_rect(m.tab, i, w), *k, if hot { m.hover_cell } else { None }),
-            Widget::Slider(label) => slider(c, r, label, hot),
-        }
-    }
-    c.text(m.status, FONT, 14, H - 26, theme::g(140), Hint::ClearType);
-    c.pop_clip();
-}
-
-/// 色块：当前选中的用焦点颜色描边，鼠标下的用浅色描边
-fn swatches(c: &mut Canvas, r: R, kind: Swatch, hover: Option<usize>) {
-    let t = theme::get();
-    let want = if kind == Swatch::Body { t.body } else { t.focus };
-    // 当前颜色不在色块里时（如默认焦点颜色 #FFA040）标出最接近的
-    let dist = |c: &[u8; 3]| (0..3).map(|k| (c[k] as i32 - want[k] as i32).pow(2)).sum::<i32>();
-    let cur = *kind.presets().iter().min_by_key(|c| dist(c)).unwrap_or(&want);
-    for (i, rgb) in kind.presets().iter().enumerate() {
-        let cell = R::new(r.x + (i % 16) as i32 * SWATCH.0, r.y + (i / 16) as i32 * SWATCH.1, SWATCH.0 - 3, SWATCH.1 - 3);
-        let edge = if *rgb == cur {
-            theme::focus()
-        } else if hover == Some(i) {
-            theme::g(230)
-        } else {
-            theme::g(90)
-        };
-        c.fill(cell, edge);
-        c.fill(cell.shrink(1), Rgba(rgb[0], rgb[1], rgb[2], 255));
-        if *rgb == cur {
-            c.fill(R::new(cell.x - 1, cell.y - 1, cell.w + 2, cell.h + 2), theme::focus().alpha(90));
-            c.fill(cell.shrink(1), Rgba(rgb[0], rgb[1], rgb[2], 255));
+            Widget::Slider => pill::slider(c, r, theme::border_alpha(), hot),
+            Widget::Groove(peak) => pill::groove(c, r, *peak),
         }
     }
 }
 
-/// 边框透明的滑块：轨道左边是当前值，右边是一小块预览（当前不透明度的玻璃）
-fn slider(c: &mut Canvas, r: R, label: &str, hot: bool) {
-    let ty = r.y + (r.h - 16) / 2 + 1;
-    c.text(label, FONT, r.x, ty, theme::g(200), Hint::ClearType);
-    let v = theme::border_alpha();
-    let t = slider_track(r);
-    c.round_rect(t, 2.0, Some(theme::g(22)), Some(theme::g(90)));
-    let kx = t.x + (t.w as f32 * v as f32 / 255.0).round() as i32;
-    c.round_rect(R::new(t.x, t.y, kx - t.x, t.h), 2.0, Some(theme::focus()), None);
-    c.round_rect(R::new(kx - 4, t.y - 5, 9, 14), 3.0, Some(theme::g(if hot { 250 } else { 210 })), None);
-    let pct = format!("{}%", (v as u32 * 100 + 127) / 255);
-    c.text(&pct, FONT, t.right() + 14, ty, theme::g(220), Hint::ClearType);
+/// 全局热键页药丸上的小图标（中心在 cx, cy）
+fn draw_glyph(c: &mut Canvas, g: Glyph, cx: i32, cy: i32, col: Rgba) {
+    let tri = |x0: f32, dir: f32| S::Poly(vec![(x0, -0.5), (x0, 8.5), (x0 + 7.0 * dir, 4.0)], 0.0);
+    let speaker = S::Poly(vec![(0.0, 2.5), (2.5, 2.5), (5.5, 0.0), (5.5, 8.0), (2.5, 5.5), (0.0, 5.5)], 0.0);
+    let s = match g {
+        Glyph::PlayPause => Shape::of(vec![tri(-9.0, 1.0), S::Rect(0.5, -0.5, 3.0, 8.5, 0.0), S::Rect(5.0, -0.5, 7.5, 8.5, 0.0)]),
+        Glyph::Prev => Shape::of(vec![S::Rect(-4.0, 0.0, -2.0, 8.0, 0.0), tri(4.0, -1.0)]),
+        Glyph::Next => Shape::of(vec![tri(-4.0, 1.0), S::Rect(2.0, 0.0, 4.0, 8.0, 0.0)]),
+        Glyph::Mute => Shape::of(vec![speaker.clone(), S::Line(7.5, 5.0, 10.5, 8.0, 1.2), S::Line(10.5, 5.0, 7.5, 8.0, 1.2)]),
+        Glyph::VolDown => Shape::of(vec![speaker.clone(), S::Line(7.0, 7.5, 11.0, 7.5, 1.4)]),
+        Glyph::VolUp => Shape::of(vec![speaker, S::Line(7.0, 7.0, 11.0, 7.0, 1.4), S::Line(9.0, 5.0, 9.0, 9.0, 1.4)]),
+        Glyph::Lyric => Shape::of(vec![S::Rect(-5.0, 0.0, 5.0, 6.5, 3.0), S::Poly(vec![(-3.0, 5.0), (-1.0, 5.0), (-4.0, 9.0)], 0.0)]),
+        Glyph::Heart => Shape::of(vec![S::Circle(-2.3, 2.5, 2.6), S::Circle(2.3, 2.5, 2.6), S::Poly(vec![(-4.6, 3.5), (4.6, 3.5), (0.0, 8.5)], 0.3)]),
+        Glyph::Ban => Shape::of(vec![S::Ring(0.0, 4.0, 4.0, 1.5), S::Line(-2.8, 1.2, 2.8, 6.8, 1.5)]),
+        Glyph::Window => Shape::of(vec![S::Rect(-5.0, 0.0, 5.0, 8.0, 0.5)]).minus(vec![S::Rect(-3.6, 2.6, 3.6, 6.6, 0.0)]),
+    };
+    let ox = if matches!(g, Glyph::Mute | Glyph::VolDown | Glyph::VolUp) { cx - 5 } else { cx };
+    for py in -2..12 {
+        for px in -8..13 {
+            let cov = (0.5 - s.d(px as f32 + 0.5, py as f32 + 0.5)).clamp(0.0, 1.0);
+            let (x, y) = (ox + px, cy - 4 + py);
+            if cov > 0.0 && x >= 0 && y >= 0 && x < c.w && y < c.h {
+                c.blend(x, y, col, cov);
+            }
+        }
+    }
 }

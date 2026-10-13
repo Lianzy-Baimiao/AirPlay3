@@ -14,6 +14,7 @@ mod radiowin;
 pub mod panels;
 mod popup;
 mod resize;
+mod settings_layout;
 mod settings_model;
 mod snap;
 mod settingswin;

@@ -1,13 +1,18 @@
-//! 「配置」窗口的数据模型：每个分页有哪些设置项、如何读写（与原版的分页与文字一致）。
+//! 「配置」窗口的数据模型：各个开关、输入框如何读写设置（分页的布局见 `settings_layout`）。
 
-use crate::config::{HotkeyAction, ProxyKind, Settings};
+use crate::config::{ProxyKind, Settings};
 
-pub const TABS: [&str; 8] = ["基本设置", "音频设备", "歌词图片", "桌面歌词", "网络连接", "全局热键", "文件关联", "颜色透明"];
-/// 「桌面歌词」分页（桌面歌词 + 任务栏歌词；原版没有这两个功能）
-pub const TAB_DESK: usize = 3;
-/// 「全局热键」分页（行更密）
-pub const TAB_HOTKEYS: usize = 5;
-/// 「颜色透明」分页（与原版相同：整体颜色、焦点颜色、边框透明、透明雾化）
+/// 分页（与原版相同的顺序；原版的「音乐分享」是 MSN Messenger 签名，早已停用，换成「桌面歌词」）
+pub const TABS: [&str; 8] = ["基本设置", "音频设备", "网络连接", "歌词图片", "桌面歌词", "文件关联", "全局热键", "颜色透明"];
+pub const TAB_GENERAL: usize = 0;
+pub const TAB_AUDIO: usize = 1;
+pub const TAB_NETWORK: usize = 2;
+pub const TAB_LYRICS: usize = 3;
+/// 桌面歌词 + 任务栏歌词（原版没有这两个功能）
+pub const TAB_DESK: usize = 4;
+pub const TAB_ASSOC: usize = 5;
+pub const TAB_HOTKEYS: usize = 6;
+/// 整体颜色、焦点颜色、边框透明、透明雾化
 pub const TAB_COLOR: usize = 7;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -19,19 +24,31 @@ pub enum Key {
     ResumeLast,
     Autoplay,
     PlayAfterDrop,
+    /// 添加文件夹时忽略压缩文件（本来就不读压缩文件，总是勾着）
+    IgnoreArchives,
     Exclusive,
     ShowLyric,
     ShowCover,
     EmbeddedPic,
     LocalPic,
     AutoDownload,
+    DownloadLyric,
     AlbumPic,
     ArtistPic,
     AutoTag,
     UseCustomDir,
+    /// 不使用代理服务器 / 使用自定义的代理服务器（二选一）
+    ProxyOff,
     ProxyEnabled,
     HotkeysEnabled,
     MediaKeys,
+    MediaPlay,
+    MediaPrev,
+    MediaNext,
+    MediaMute,
+    MediaVolDown,
+    MediaVolUp,
+    GlobalWheel,
     DeskLyric,
     DeskLyricLocked,
     TaskbarLyric,
@@ -69,25 +86,15 @@ impl Field {
         matches!(self, Field::ProxyPass | Field::LrcApiKey)
     }
 
+    /// 代理服务器的设置（只在使用自定义的代理服务器时能改）
+    pub fn proxy(self) -> bool {
+        matches!(self, Field::ProxyHost | Field::ProxyPort | Field::ProxyUser | Field::ProxyPass)
+    }
+
     /// 改了以后要重新摆放任务栏歌词
     pub fn taskbar(self) -> bool {
         matches!(self, Field::TaskbarX | Field::TaskbarY | Field::TaskbarFont | Field::TaskbarWidth)
     }
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub enum Widget {
-    Label(String),
-    Check(Key, &'static str),
-    /// 下拉选择：标签、当前显示文字、动作
-    Choice(&'static str, String, ChoiceKind),
-    Text(Field, &'static str),
-    Hotkey(HotkeyAction),
-    Button(&'static str, Btn),
-    /// 色块（整体颜色 3 行 × 16、焦点颜色 1 行 × 16）
-    Swatches(Swatch),
-    /// 滑块（边框透明 0 ~ 255）
-    Slider(&'static str),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -109,28 +116,8 @@ impl Swatch {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ChoiceKind {
-    Device,
-    ProxyKind,
-    LyricSource,
-    TaskbarAlign,
-    DeskStyle,
-    DeskLines,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Btn {
-    BrowseLyricDir,
-    OpenConfigDir,
-    ResetHotkeys,
-    Associate,
-    Unassociate,
-    ResetTaskbarPos,
-    ResetColors,
-}
-
 pub fn get(s: &Settings, k: Key) -> bool {
+    let m = &s.hotkeys.media;
     match k {
         Key::Topmost => s.general.topmost,
         Key::MinToTray => s.general.minimize_to_tray,
@@ -139,19 +126,29 @@ pub fn get(s: &Settings, k: Key) -> bool {
         Key::ResumeLast => s.playback.resume_last,
         Key::Autoplay => s.playback.autoplay,
         Key::PlayAfterDrop => s.general.play_after_drop,
+        Key::IgnoreArchives => true,
         Key::Exclusive => s.audio.exclusive,
         Key::ShowLyric => s.lyrics.show_lyric,
         Key::ShowCover => s.lyrics.show_cover,
         Key::EmbeddedPic => s.lyrics.embedded_pic,
         Key::LocalPic => s.lyrics.local_pic,
         Key::AutoDownload => s.lyrics.auto_download,
+        Key::DownloadLyric => s.lyrics.download_lyric,
         Key::AlbumPic => s.lyrics.album_pic,
         Key::ArtistPic => s.lyrics.artist_pic,
         Key::AutoTag => s.lyrics.auto_tag,
         Key::UseCustomDir => s.lyrics.custom_dir.is_some(),
+        Key::ProxyOff => !s.network.proxy_enabled,
         Key::ProxyEnabled => s.network.proxy_enabled,
         Key::HotkeysEnabled => s.hotkeys.enabled,
         Key::MediaKeys => s.hotkeys.media_keys,
+        Key::MediaPlay => m.play,
+        Key::MediaPrev => m.prev,
+        Key::MediaNext => m.next,
+        Key::MediaMute => m.mute,
+        Key::MediaVolDown => m.vol_down,
+        Key::MediaVolUp => m.vol_up,
+        Key::GlobalWheel => s.general.global_wheel,
         Key::DeskLyric => s.desk_lyric.visible,
         Key::DeskLyricLocked => s.desk_lyric.locked,
         Key::TaskbarLyric => s.taskbar_lyric.visible,
@@ -161,6 +158,7 @@ pub fn get(s: &Settings, k: Key) -> bool {
 }
 
 pub fn set(s: &mut Settings, k: Key, v: bool) {
+    let m = &mut s.hotkeys.media;
     match k {
         Key::Topmost => s.general.topmost = v,
         Key::MinToTray => s.general.minimize_to_tray = v,
@@ -169,19 +167,30 @@ pub fn set(s: &mut Settings, k: Key, v: bool) {
         Key::ResumeLast => s.playback.resume_last = v,
         Key::Autoplay => s.playback.autoplay = v,
         Key::PlayAfterDrop => s.general.play_after_drop = v,
+        Key::IgnoreArchives => {}
         Key::Exclusive => s.audio.exclusive = v,
         Key::ShowLyric => s.lyrics.show_lyric = v,
         Key::ShowCover => s.lyrics.show_cover = v,
         Key::EmbeddedPic => s.lyrics.embedded_pic = v,
         Key::LocalPic => s.lyrics.local_pic = v,
         Key::AutoDownload => s.lyrics.auto_download = v,
+        Key::DownloadLyric => s.lyrics.download_lyric = v,
         Key::AlbumPic => s.lyrics.album_pic = v,
         Key::ArtistPic => s.lyrics.artist_pic = v,
         Key::AutoTag => s.lyrics.auto_tag = v,
         Key::UseCustomDir => s.lyrics.custom_dir = if v { Some(s.lyrics.custom_dir.clone().unwrap_or_default()) } else { None },
-        Key::ProxyEnabled => s.network.proxy_enabled = v,
+        // 二选一：点哪个就选哪个
+        Key::ProxyOff => s.network.proxy_enabled = false,
+        Key::ProxyEnabled => s.network.proxy_enabled = true,
         Key::HotkeysEnabled => s.hotkeys.enabled = v,
         Key::MediaKeys => s.hotkeys.media_keys = v,
+        Key::MediaPlay => m.play = v,
+        Key::MediaPrev => m.prev = v,
+        Key::MediaNext => m.next = v,
+        Key::MediaMute => m.mute = v,
+        Key::MediaVolDown => m.vol_down = v,
+        Key::MediaVolUp => m.vol_up = v,
+        Key::GlobalWheel => s.general.global_wheel = v,
         Key::DeskLyric => s.desk_lyric.visible = v,
         Key::DeskLyricLocked => s.desk_lyric.locked = v,
         Key::TaskbarLyric => s.taskbar_lyric.visible = v,
@@ -190,10 +199,22 @@ pub fn set(s: &mut Settings, k: Key, v: bool) {
     }
 }
 
+/// 这个开关现在能不能改（灰掉的不能）：依赖的上一级开关关着时
+pub fn enabled(s: &Settings, k: Key) -> bool {
+    match k {
+        Key::ResumeLast => s.playback.autoplay,
+        Key::DownloadLyric | Key::AlbumPic | Key::ArtistPic | Key::AutoTag => s.lyrics.auto_download,
+        Key::MediaPlay | Key::MediaPrev | Key::MediaNext | Key::MediaMute | Key::MediaVolDown | Key::MediaVolUp => s.hotkeys.media_keys,
+        _ => true,
+    }
+}
+
 /// 输入框里显示的文字（密码显示为 *）
 pub fn text(s: &Settings, f: Field) -> String {
     match f {
         Field::ProxyPass | Field::LrcApiKey => "*".repeat(raw_text(s, f).chars().count()),
+        // 与原版一样显示 0
+        Field::ProxyPort if s.network.port == 0 => "0".into(),
         _ => raw_text(s, f),
     }
 }
@@ -273,94 +294,6 @@ pub fn taskbar_align_label(align: u8) -> &'static str {
     }
 }
 
-/// 某个分页的设置项（自上而下排列）
-pub fn widgets(tab: usize, s: &Settings, device_name: &str) -> Vec<Widget> {
-    use Widget::*;
-    match tab {
-        0 => vec![
-            Check(Key::Topmost, "窗体始终置顶"),
-            Check(Key::MinToTray, "最小化到托盘 (不显示任务栏窗体)"),
-            Check(Key::CloseToTray, "点击关闭按钮时缩到托盘"),
-            Check(Key::Autostart, "开机时自动启动"),
-            Check(Key::Autoplay, "启动时自动播放"),
-            Check(Key::ResumeLast, "从上次中断位置继续"),
-            Check(Key::PlayAfterDrop, "拖拽添加文件(夹)到\"音乐列表\"后立即播放"),
-            Button("打开配置文件夹", Btn::OpenConfigDir),
-        ],
-        1 => vec![
-            Choice("输出设备", device_name.to_string(), ChoiceKind::Device),
-            Check(Key::Exclusive, "使用独占模式 (WASAPI Exclusive)"),
-            Label("如果设备启动失败或工作异常，请尝试切换共享和独占模式".into()),
-        ],
-        2 => vec![
-            Check(Key::ShowLyric, "显示歌词"),
-            Check(Key::ShowCover, "显示图片"),
-            Check(Key::EmbeddedPic, "显示音乐文件内嵌图片"),
-            Check(Key::LocalPic, "显示本地默认图片"),
-            Choice("歌词来源", s.lyrics.source.label().into(), ChoiceKind::LyricSource),
-            Check(Key::AutoDownload, "启用自动下载歌词"),
-            Check(Key::AlbumPic, "下载专辑图片 (LrcAPI / iTunes)"),
-            Check(Key::ArtistPic, "下载艺人图片 (没有专辑图片时显示；Deezer / 维基百科)"),
-            Check(Key::AutoTag, "下载后自动修改歌曲信息 (补全空着的艺人、专辑)"),
-            Check(Key::UseCustomDir, "使用自定义歌词目录 (文件名格式 = \"艺人 - 曲目.lrc\")"),
-            Text(Field::CustomDir, "歌词目录"),
-            Button("浏览…", Btn::BrowseLyricDir),
-        ],
-        TAB_DESK => vec![
-            Check(Key::DeskLyric, "显示桌面歌词"),
-            Check(Key::DeskLyricLocked, "锁定桌面歌词 (鼠标穿透)"),
-            Choice("配色", crate::gui::desklyric::style(s.desk_lyric.style).name.into(), ChoiceKind::DeskStyle),
-            Choice("显示行数", format!("{} 行（拖动桌面歌词的上下边也能调整）", s.desk_lyric.line_count()), ChoiceKind::DeskLines),
-            Text(Field::DeskFont, "桌面歌词字号"),
-            Check(Key::TaskbarLyric, "在任务栏显示歌词"),
-            Check(Key::TaskbarTwoLines, "任务栏歌词第二行显示下一句"),
-            Choice("任务栏歌词位置", taskbar_align_label(s.taskbar_lyric.align).into(), ChoiceKind::TaskbarAlign),
-            Text(Field::TaskbarX, "水平偏移 (像素)"),
-            Text(Field::TaskbarY, "垂直偏移 (像素)"),
-            Text(Field::TaskbarFont, "任务栏歌词字号"),
-            Text(Field::TaskbarWidth, "宽度 (像素)"),
-            Label("偏移：正数向右 / 向下。也可以直接在任务栏上按住歌词拖动".into()),
-            Button("恢复默认位置", Btn::ResetTaskbarPos),
-        ],
-        4 => {
-            let kind = s.network.kind;
-            vec![
-                Check(Key::ProxyEnabled, "使用自定义的代理服务器"),
-                Choice("服务器类型", proxy_label(kind).into(), ChoiceKind::ProxyKind),
-                Text(Field::ProxyHost, "服务器地址"),
-                Text(Field::ProxyPort, "端口"),
-                Text(Field::ProxyUser, "用户名"),
-                Text(Field::ProxyPass, "密码"),
-                Label("未启用时使用系统代理".into()),
-                Text(Field::LrcApiUrl, "LrcAPI 地址"),
-                Text(Field::LrcApiKey, "LrcAPI 密钥"),
-                Label("自建 LrcAPI 时填写；地址留空使用公开服务 api.lrc.cx".into()),
-            ]
-        }
-        TAB_HOTKEYS => {
-            let mut v = vec![Check(Key::HotkeysEnabled, "启用全局键盘热键支持"), Check(Key::MediaKeys, "启用全局多媒体键盘支持")];
-            v.extend(HotkeyAction::ALL.iter().map(|a| Hotkey(*a)));
-            v.push(Button("重置热键", Btn::ResetHotkeys));
-            v
-        }
-        TAB_COLOR => vec![
-            Check(Key::Frost, "透明雾化 (窗口后面的桌面模糊，Windows 10 以上)"),
-            Label("整体颜色".into()),
-            Swatches(Swatch::Body),
-            Label("焦点颜色".into()),
-            Swatches(Swatch::Focus),
-            Slider("边框透明"),
-            Label("边框：播放条和各面板标题条的半透明玻璃，向左拖动更通透".into()),
-            Button("恢复默认颜色", Btn::ResetColors),
-        ],
-        _ => vec![
-            Label("把常见音乐格式关联到 AirPlay3（只写入当前用户的注册表）".into()),
-            Button("关联音乐文件", Btn::Associate),
-            Button("取消关联", Btn::Unassociate),
-        ],
-    }
-}
-
 pub fn proxy_label(k: ProxyKind) -> &'static str {
     match k {
         ProxyKind::Http => "HTTP",
@@ -395,16 +328,5 @@ mod tests {
         // 密码显示为 *，编辑时取原文
         s.network.pass = "abc".into();
         assert_eq!((text(&s, Field::ProxyPass), raw_text(&s, Field::ProxyPass)), ("***".into(), "abc".into()));
-    }
-
-    /// 每个分页的设置项都要放得进窗口（最后一行在状态文字上方）
-    #[test]
-    fn every_tab_fits() {
-        use crate::gui::panels::settings::{H, row_rect};
-        let s = Settings::default();
-        for tab in 0..TABS.len() {
-            let n = widgets(tab, &s, "设备").len();
-            assert!(row_rect(tab, n - 1).bottom() <= H - 30, "{} 放不下 {n} 项", TABS[tab]);
-        }
     }
 }

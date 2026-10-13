@@ -277,7 +277,16 @@ impl App {
                 None
             };
         }
+        // 多媒体键盘的六个开关：前三个经系统媒体控制，静音 / 音量键用键盘钩子
+        let (on, m) = {
+            let hk = &self.player.core.lock().settings.hotkeys;
+            (hk.media_keys, hk.media)
+        };
+        use crate::platform::mediakeys::{MUTE, VOL_DOWN, VOL_UP};
+        let mask = if on { [(m.mute, MUTE), (m.vol_down, VOL_DOWN), (m.vol_up, VOL_UP)].iter().filter(|b| b.0).map(|b| b.1).sum() } else { 0 };
+        crate::platform::mediakeys::sync(mask, self.bar_hwnd());
         let Some(s) = self.smtc.as_mut() else { return };
+        s.set_buttons(m.play, m.prev, m.next);
         let snap = &self.ui.snap;
         let n = self.now.lock();
         let cover = n.cover.as_ref().map(|c| c.raw.clone());

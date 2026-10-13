@@ -216,7 +216,7 @@ impl Player {
             }
             p.repaint();
             let mut t = t;
-            if !found && ls.auto_download && !t.lyric_unlinked {
+            if !found && ls.auto_download && ls.download_lyric && !t.lyric_unlinked {
                 match crate::lyrics::online::best_match(&net, ls.source, &t.display_title(), &t.artist, t.duration) {
                     Ok(Some((c, text))) => match crate::lyrics::online::save(&text, &c, &lyric_dir, &t.display_title(), &t.artist) {
                         // 下载后保存到本地并关联到这首歌，下次直接用本地文件

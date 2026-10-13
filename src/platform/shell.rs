@@ -102,6 +102,32 @@ pub fn register_associations(exts: &[&str]) -> bool {
     ok
 }
 
+/// 已关联到本程序的扩展名（默认程序能力里登记过的）
+pub fn associated(exts: &[&str]) -> Vec<bool> {
+    use windows::Win32::System::Registry::{RRF_RT_REG_SZ, RegGetValueW};
+    let key = HSTRING::from(format!(r"{CAPS_KEY}\FileAssociations"));
+    exts.iter()
+        .map(|e| {
+            let name = HSTRING::from(format!(".{e}"));
+            unsafe { RegGetValueW(HKEY_CURRENT_USER, &key, &name, RRF_RT_REG_SZ, None, None, None) }.is_ok()
+        })
+        .collect()
+}
+
+/// 只去掉这些扩展名的关联（其它扩展名和程序本身的登记不动）
+pub fn unassociate(exts: &[&str]) {
+    let hk = HKEY_CURRENT_USER;
+    unsafe {
+        for e in exts {
+            let dot = HSTRING::from(format!(".{e}"));
+            let _ = RegDeleteKeyValueW(hk, &HSTRING::from(format!(r"Software\Classes\.{e}\OpenWithProgids")), &HSTRING::from(PROGID));
+            let _ = RegDeleteKeyValueW(hk, &HSTRING::from(format!(r"{APP_KEY}\SupportedTypes")), &dot);
+            let _ = RegDeleteKeyValueW(hk, &HSTRING::from(format!(r"{CAPS_KEY}\FileAssociations")), &dot);
+        }
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None);
+    }
+}
+
 pub fn unregister_associations(exts: &[&str]) {
     let hk = HKEY_CURRENT_USER;
     unsafe {

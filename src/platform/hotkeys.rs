@@ -27,7 +27,7 @@ pub fn register_all(hwnd: isize, hk: &HotkeySettings) -> Vec<HotkeyAction> {
     }
     let mut failed = Vec::new();
     for (i, a) in HotkeyAction::ALL.iter().enumerate() {
-        let Some(c) = hk.combo(*a) else { continue };
+        let Some(c) = hk.combo(*a).filter(|_| hk.active(*a)) else { continue };
         let mut m = MOD_NOREPEAT;
         for (on, f) in [(c.ctrl, MOD_CONTROL), (c.alt, MOD_ALT), (c.shift, MOD_SHIFT), (c.win, MOD_WIN)] {
             if on {

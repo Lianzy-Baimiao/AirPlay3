@@ -30,6 +30,16 @@ pub fn register(wndproc: WNDPROC) {
 /// 「透明雾化」：窗口半透明部分后面的桌面变模糊（毛玻璃）。原版用的 DwmEnableBlurBehindWindow 在
 /// Windows 8 以后不再模糊，这里用 Windows 10 起的 SetWindowCompositionAttribute（ACCENT_ENABLE_BLURBEHIND），
 /// 系统不支持时什么也不做
+/// 前台窗口是本程序的
+pub fn foreground_is_ours() -> bool {
+    unsafe {
+        let fg = GetForegroundWindow();
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(fg, Some(&mut pid));
+        pid == windows::Win32::System::Threading::GetCurrentProcessId()
+    }
+}
+
 pub fn set_frost(hwnd: HWND, on: bool) {
     #[repr(C)]
     struct AccentPolicy {

@@ -2,7 +2,7 @@
 //! 图集与原版的排列相同（格子大小、位置），绘制时再按颜色着色：白色图形 + 外面一圈淡淡的暗边。
 
 mod art;
-mod sdf;
+pub(crate) mod sdf;
 
 use std::sync::OnceLock;
 

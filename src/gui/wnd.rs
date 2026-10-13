@@ -137,6 +137,10 @@ impl App {
             }
             WM_RBUTTONUP => self.right_click(pane, lo(lp), hi(lp)),
             WM_MOUSEWHEEL => {
+                // 全局鼠标滚轮关着时，只有本程序在前台才响应滚轮
+                if !self.player.core.lock().settings.general.global_wheel && !super::window::foreground_is_ours() {
+                    return Some(LRESULT(0));
+                }
                 let delta = ((wp.0 >> 16) & 0xFFFF) as i16 as i32;
                 let mut pt = POINT { x: lo(lp), y: hi(lp) };
                 unsafe {
@@ -151,6 +155,15 @@ impl App {
                 self.drop_files(pane, files);
             }
             WM_HOTKEY => self.on_hotkey(wp.0 as i32),
+            crate::platform::mediakeys::WM_APP_MEDIAKEY => {
+                use crate::controller::Command as C;
+                let c = match wp.0 {
+                    0 => C::Mute,
+                    1 => C::VolumeDown,
+                    _ => C::VolumeUp,
+                };
+                let _ = self.cmds.send(c);
+            }
             WM_COPYDATA => {
                 // 第二个实例转交的文件
                 let Some(files) = crate::platform::instance::parse(lp) else { return None };

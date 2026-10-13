@@ -299,10 +299,7 @@ impl App {
             Act::TaskbarMenu => self.popup(self.taskbar_menu()),
             Act::SettingsTab(t) => {
                 self.open_settings();
-                if let Some(s) = self.settings_win.as_mut() {
-                    (s.tab, s.focus, s.edit, s.capturing, s.hover) = (t.min(super::settings_model::TABS.len() - 1), None, None, None, None);
-                    s.win.dirty = true;
-                }
+                self.settings_tab(t.min(super::settings_model::TABS.len() - 1));
             }
             Act::Minibar => self.toggle_minibar(),
             Act::LyricDir => {

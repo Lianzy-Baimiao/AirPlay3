@@ -95,19 +95,33 @@ impl HotkeyAction {
         }
     }
 
-    /// 默认组合键：CTRL + ALT + 键。
+    /// 「全局热键」页上的顺序（与原版相同；显示 / 隐藏主窗口是新加的，放在最后）
+    pub const PAGE: [HotkeyAction; 10] = [
+        HotkeyAction::PlayPause,
+        HotkeyAction::Prev,
+        HotkeyAction::Next,
+        HotkeyAction::Mute,
+        HotkeyAction::VolumeDown,
+        HotkeyAction::VolumeUp,
+        HotkeyAction::DeskLyric,
+        HotkeyAction::Favorite,
+        HotkeyAction::Ban,
+        HotkeyAction::ShowWindow,
+    ];
+
+    /// 默认组合键：CTRL + ALT + 键（与原版相同）
     pub fn default_combo(self) -> Option<KeyCombo> {
         // Win32 虚拟键码
         let vk = match self {
-            HotkeyAction::PlayPause => 0x50,  // P
+            HotkeyAction::PlayPause => 0x74,  // F5
             HotkeyAction::Prev => 0x25,       // ←
             HotkeyAction::Next => 0x27,       // →
             HotkeyAction::VolumeUp => 0x26,   // ↑
             HotkeyAction::VolumeDown => 0x28, // ↓
-            HotkeyAction::Mute => 0x4D,       // M
-            HotkeyAction::Favorite => 0x4C,   // L
-            HotkeyAction::Ban => 0x42,        // B
-            HotkeyAction::DeskLyric => 0x44,  // D
+            HotkeyAction::Mute => 0x53,       // S
+            HotkeyAction::DeskLyric => 0x76,  // F7
+            HotkeyAction::Favorite => 0x77,   // F8
+            HotkeyAction::Ban => 0x78,        // F9
             HotkeyAction::ShowWindow => 0x57, // W
         };
         Some(KeyCombo { ctrl: true, alt: true, shift: false, win: false, vk })
@@ -136,11 +150,13 @@ pub struct General {
     pub autostart: bool,
     /// 拖拽添加文件(夹)后立即播放
     pub play_after_drop: bool,
+    /// 全局鼠标滚轮：窗口不在前台时，鼠标指着它滚动滚轮也有效（原版用低级鼠标钩子做到）
+    pub global_wheel: bool,
 }
 
 impl Default for General {
     fn default() -> Self {
-        Self { topmost: false, minimize_to_tray: false, close_to_tray: false, autostart: false, play_after_drop: true }
+        Self { topmost: false, minimize_to_tray: false, close_to_tray: false, autostart: false, play_after_drop: true, global_wheel: true }
     }
 }
 
@@ -244,8 +260,10 @@ pub struct LyricSettings {
     pub local_pic: bool,
     /// 使用自定义歌词目录 (文件名格式 = "艺人 - 曲目.lrc")
     pub custom_dir: Option<String>,
-    /// 启用自动下载（默认关闭：会把 歌名 / 艺人 / 时长 发送到所选歌词来源）
+    /// 启用自动下载（默认关闭：会把 歌名 / 艺人 / 时长 发送到所选歌词来源）；下面几项都在它打开时才有效
     pub auto_download: bool,
+    /// 自动下载时下载歌词
+    pub download_lyric: bool,
     /// 自动下载时也下载专辑图片（没有内嵌 / 本地图片时，从 LrcAPI / iTunes 下载并保存到本地）
     pub album_pic: bool,
     /// 自动下载时，找不到专辑图片就下载艺人图片（Deezer / 维基百科，按艺人缓存）
@@ -258,7 +276,19 @@ pub struct LyricSettings {
 
 impl Default for LyricSettings {
     fn default() -> Self {
-        Self { show_lyric: true, show_cover: true, embedded_pic: true, local_pic: true, custom_dir: None, auto_download: false, album_pic: true, artist_pic: true, auto_tag: false, source: Default::default() }
+        Self {
+            show_lyric: true,
+            show_cover: true,
+            embedded_pic: true,
+            local_pic: true,
+            custom_dir: None,
+            auto_download: false,
+            download_lyric: true,
+            album_pic: true,
+            artist_pic: true,
+            auto_tag: false,
+            source: Default::default(),
+        }
     }
 }
 
@@ -334,17 +364,47 @@ pub struct HotkeySettings {
     pub enabled: bool,
     /// 启用全局多媒体键盘支持（系统媒体控制 SMTC）
     pub media_keys: bool,
+    /// 多媒体键盘上由本程序处理的键（原版的六个开关）：播放 / 暂停、上一首、下一首经系统媒体控制；
+    /// 静音、音量减、音量加打开时改为调本程序的音量（不再调系统音量）
+    pub media: MediaKeys,
     pub bindings: BTreeMap<HotkeyAction, Option<KeyCombo>>,
+    /// 关掉的热键（保留组合键，只是不注册）。旧配置里没有这一项时都开着
+    #[serde(default)]
+    pub disabled: std::collections::BTreeSet<HotkeyAction>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct MediaKeys {
+    pub play: bool,
+    pub prev: bool,
+    pub next: bool,
+    pub mute: bool,
+    pub vol_down: bool,
+    pub vol_up: bool,
+}
+
+impl Default for MediaKeys {
+    fn default() -> Self {
+        Self { play: true, prev: true, next: true, mute: false, vol_down: false, vol_up: false }
+    }
 }
 
 impl Default for HotkeySettings {
     fn default() -> Self {
         let bindings = HotkeyAction::ALL.iter().map(|a| (*a, a.default_combo())).collect();
-        Self { enabled: true, media_keys: true, bindings }
+        // 与原版相同：迷你歌词、喜爱、不再播放默认不开
+        let disabled = [HotkeyAction::DeskLyric, HotkeyAction::Favorite, HotkeyAction::Ban].into_iter().collect();
+        Self { enabled: true, media_keys: true, media: MediaKeys::default(), bindings, disabled }
     }
 }
 
 impl HotkeySettings {
+    /// 这个热键开着（有组合键且没关掉）
+    pub fn active(&self, a: HotkeyAction) -> bool {
+        !self.disabled.contains(&a) && self.combo(a).is_some()
+    }
+
     pub fn combo(&self, a: HotkeyAction) -> Option<KeyCombo> {
         match self.bindings.get(&a) {
             Some(c) => *c,
@@ -369,7 +429,8 @@ pub struct ThemeSettings {
 
 impl Default for ThemeSettings {
     fn default() -> Self {
-        Self { body: [0x20, 0x20, 0x20], focus: [0xFF, 0xA0, 0x40], border_alpha: 0, frost: false }
+        // 与原版的默认相同（透明雾化默认打开）
+        Self { body: [0x20, 0x20, 0x20], focus: [0xFF, 0xA0, 0x40], border_alpha: 0, frost: true }
     }
 }
 
@@ -502,7 +563,7 @@ mod tests {
         // 旧版本的颜色设置（base / accent / opacity，从没用过）读取时忽略，用原版的默认颜色
         let old: Settings = serde_json::from_str(r#"{"theme":{"base":[36,38,46],"accent":[56,196,160],"opacity":1.0}}"#).unwrap();
         assert_eq!(old.theme, ThemeSettings::default());
-        assert_eq!((old.theme.body, old.theme.focus, old.theme.border_alpha, old.theme.frost), ([0x20; 3], [0xFF, 0xA0, 0x40], 0, false));
+        assert_eq!((old.theme.body, old.theme.focus, old.theme.border_alpha, old.theme.frost), ([0x20; 3], [0xFF, 0xA0, 0x40], 0, true));
         assert_eq!(partial.audio.buffer_ms, 60);
     }
 
