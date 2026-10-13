@@ -119,7 +119,7 @@ impl App {
                 Hot::Min => self.act(Act::Minimize),
                 Hot::Minibar => self.act(Act::Minibar),
                 Hot::Pin => self.act(Act::ToggleTopmost),
-                Hot::Close => self.quit(),
+                Hot::Close => self.request_close(),
                 Hot::Lyric => self.act(Act::TogglePane(0)),
                 Hot::Eq => self.act(Act::TogglePane(1)),
                 Hot::List => self.act(Act::TogglePane(2)),

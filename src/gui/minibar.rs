@@ -275,7 +275,7 @@ impl App {
                 } else if which == 0 && BTN_RESTORE.shrink(-2).contains(x, y) {
                     self.toggle_minibar();
                 } else if which == 0 && BTN_CLOSE.shrink(-2).contains(x, y) {
-                    self.quit();
+                    self.request_close();
                 } else {
                     let rect = |p: &Popup| R::new(p.pos.0, p.pos.1, W, H);
                     m.drag = Some(MiniDrag { lead: which, cursor: super::resize::cursor(), rects: [rect(&m.top), rect(&m.bottom)], taskbar: super::resize::taskbar_rect() });
@@ -290,8 +290,8 @@ impl App {
                 }
             }
             WM_LBUTTONDBLCLK => self.toggle_minibar(),
-            // Alt+F4 等：与主界面一样完全退出（否则只关掉迷你条，进程留在后台）
-            WM_CLOSE => self.quit(),
+            // Alt+F4 等：与主界面一样（完全退出，或开了「点关闭按钮缩到托盘」时缩到托盘）
+            WM_CLOSE => self.request_close(),
             WM_RBUTTONUP => self.act(super::menu::Act::MainMenu),
             WM_MOUSEWHEEL => {
                 let d = ((_wp.0 >> 16) & 0xFFFF) as i16 as i32;

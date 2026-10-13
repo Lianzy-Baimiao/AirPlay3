@@ -413,10 +413,23 @@ impl App {
 
     /// 最小化（按设置到任务栏或托盘）：先播关闭动画
     pub fn minimize(&mut self) {
+        let to_tray = self.player.core.lock().settings.general.minimize_to_tray;
+        self.minimize_to(to_tray);
+    }
+
+    /// 关闭按钮、Alt+F4：开了「点关闭按钮缩到托盘」时缩到托盘，否则退出（主菜单的「退出」总是退出）
+    pub fn request_close(&mut self) {
+        if self.player.core.lock().settings.general.close_to_tray && !self.quitting {
+            self.minimize_to(true);
+        } else {
+            self.quit();
+        }
+    }
+
+    fn minimize_to(&mut self, to_tray: bool) {
         if self.quitting || !self.is_shown() || self.after.is_some() {
             return;
         }
-        let to_tray = self.player.core.lock().settings.general.minimize_to_tray;
         // 迷你条没有任务栏按钮，总是缩到托盘
         let after = if self.minibar.is_some() {
             After::MinibarTray

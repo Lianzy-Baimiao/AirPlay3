@@ -210,7 +210,7 @@ impl App {
                 return Some(LRESULT(1));
             }
             WM_CLOSE => {
-                self.quit();
+                self.request_close();
                 return Some(LRESULT(0));
             }
             // 系统发来的最小化 / 还原命令（Alt+空格菜单、任务栏按钮等）：和我们自己的按钮一样播动画

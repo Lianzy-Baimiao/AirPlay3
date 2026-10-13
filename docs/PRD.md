@@ -43,7 +43,7 @@ AirPlay3（airplayme.com，最后版本 2012-07-30）是一款界面极简、深
 - 音乐列表、歌词图片可从左、右、下边及左下、右下角调整大小，被拖动的边自动对齐；尺寸范围与原版一致（列表 264×225 ~ 804×821，歌词图片 284×225 ~ 804×821）。
 - 播放条宽度可在 284 ~ 804 像素间调整：音量、封面、标题靠左，大按钮居中，窗口按钮、开关、模式、总时长靠右，进度条拉伸。
 - 各面板位置、大小、显示状态都保存；拔掉显示器后回到默认位置。
-- 单实例；关闭即完全退出；可最小化到托盘。
+- 单实例；关闭即完全退出（「点关闭按钮缩到托盘」打开时缩到托盘，主菜单「退出」总是退出）；可最小化到托盘。
 
 ### 5.3 播放
 - 格式：MP3 / FLAC / OGG / WAV / AIFF / M4A（AAC、ALAC）/ WMA / AC3 / DTS / APE / TTA / WavPack / Musepack / TAK 等；列表 m3u / m3u8 / pls / wpl / asx / xspf / ttpl / apl；CUE 分轨。APE、TTA、WavPack、Musepack、TAK、DTS 用自带解码器（`audio::codec`），要求与参考解码器逐样本一致；改写自 LGPL 代码的解码器（TAK、DTS）放在单独的目录、以 LGPL 发布。DTS 用 FFmpeg 的定点算法（与 `-flags bitexact` 比），支持 .dts / .dtshd / WAV 里的 DTS，含 DTS-HD MA 无损；不支持 DTS Express。
