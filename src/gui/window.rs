@@ -27,7 +27,41 @@ pub fn register(wndproc: WNDPROC) {
     }
 }
 
+/// 「透明雾化」：窗口半透明部分后面的桌面变模糊（毛玻璃）。原版用的 DwmEnableBlurBehindWindow 在
+/// Windows 8 以后不再模糊，这里用 Windows 10 起的 SetWindowCompositionAttribute（ACCENT_ENABLE_BLURBEHIND），
+/// 系统不支持时什么也不做
+pub fn set_frost(hwnd: HWND, on: bool) {
+    #[repr(C)]
+    struct AccentPolicy {
+        state: u32,
+        flags: u32,
+        gradient: u32,
+        animation: u32,
+    }
+    #[repr(C)]
+    struct CompositionData {
+        attrib: u32,
+        data: *mut AccentPolicy,
+        size: usize,
+    }
+    type Swca = unsafe extern "system" fn(HWND, *mut CompositionData) -> i32;
+    static FUNC: std::sync::OnceLock<Option<Swca>> = std::sync::OnceLock::new();
+    let f = FUNC.get_or_init(|| unsafe {
+        let user32 = windows::Win32::System::LibraryLoader::GetModuleHandleW(w!("user32.dll")).ok()?;
+        let p = windows::Win32::System::LibraryLoader::GetProcAddress(user32, windows::core::s!("SetWindowCompositionAttribute"))?;
+        Some(std::mem::transmute::<unsafe extern "system" fn() -> isize, Swca>(p))
+    });
+    let Some(f) = f else { return };
+    // ACCENT_DISABLED = 0，ACCENT_ENABLE_BLURBEHIND = 3；WCA_ACCENT_POLICY = 19
+    let mut accent = AccentPolicy { state: if on { 3 } else { 0 }, flags: 0, gradient: 0, animation: 0 };
+    let mut data = CompositionData { attrib: 19, data: &mut accent, size: size_of::<AccentPolicy>() };
+    unsafe {
+        let _ = f(hwnd, &mut data);
+    }
+}
+
 /// 创建分层弹出窗口。`taskbar` 为 true 时出现在任务栏（主窗口），否则为工具窗口。
+/// 「透明雾化」打开时新窗口也跟着雾化（桌面歌词自己再关掉）
 pub fn create(title: &str, x: i32, y: i32, w: i32, h: i32, taskbar: bool, owner: Option<HWND>) -> HWND {
     let t: Vec<u16> = title.encode_utf16().chain([0]).collect();
     let mut ex = WS_EX_LAYERED;
@@ -49,6 +83,11 @@ pub fn create(title: &str, x: i32, y: i32, w: i32, h: i32, taskbar: bool, owner:
             GetModuleHandleW(None).ok().map(|h| h.into()),
             None,
         )
+        .inspect(|&h| {
+            if super::theme::get().frost {
+                set_frost(h, true);
+            }
+        })
         .unwrap_or_default()
     }
 }

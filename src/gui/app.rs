@@ -161,6 +161,33 @@ impl App {
         self.win(p).dirty = true;
     }
 
+    /// 「颜色透明」改了：换主题、所有窗口按新的「透明雾化」设置，然后全部重画
+    pub fn apply_theme(&mut self) {
+        let t = super::theme::Theme::from_settings(&self.player.core.lock().settings.theme);
+        let frost_changed = super::theme::get().frost != t.frost;
+        super::theme::set(t);
+        if frost_changed {
+            let mut hwnds: Vec<HWND> = self.wins.iter().map(|(_, w)| w.hwnd).collect();
+            if let Some(m) = &self.minibar {
+                hwnds.extend([m.top.hwnd, m.bottom.hwnd]);
+            }
+            hwnds.extend(self.settings_win.as_ref().map(|s| s.win.hwnd));
+            hwnds.extend(self.search.as_ref().map(|s| s.win.hwnd));
+            hwnds.extend(self.radio_win.as_ref().map(|s| s.win.hwnd));
+            for h in hwnds {
+                super::window::set_frost(h, t.frost);
+            }
+        }
+        self.dirty_all();
+        if let Some(m) = self.minibar.as_mut() {
+            m.top.dirty = true;
+            m.bottom.dirty = true;
+        }
+        for w in [self.search.as_mut().map(|s| &mut s.win), self.radio_win.as_mut().map(|r| &mut r.win)].into_iter().flatten() {
+            w.dirty = true;
+        }
+    }
+
     pub fn dirty_all(&mut self) {
         for (_, w) in &mut self.wins {
             w.dirty = true;
@@ -272,6 +299,8 @@ pub fn run(player: Player, now: SharedNow, cmds: Sender<Command>, start_hidden: 
     let (x, y) = super::state::initial_origin(&player);
     let (sizes, saved) = {
         let g = player.core.lock();
+        // 先设好颜色透明（新建的窗口按它决定是否雾化）
+        super::theme::set(super::theme::Theme::from_settings(&g.settings.theme));
         (Sizes::from_settings(&g.settings.window), g.settings.window.pane_offsets)
     };
     let mut wins = Vec::new();

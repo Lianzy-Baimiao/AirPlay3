@@ -23,6 +23,9 @@ pub struct SettingsWin {
     pub devices: Vec<crate::audio::devices::DeviceInfo>,
     pub status: String,
     pub drag: Option<(i32, i32)>,
+    /// 鼠标下的色块；正在拖动的滑块（第几项）
+    pub hover_cell: Option<usize>,
+    pub slider_drag: Option<usize>,
 }
 
 impl App {
@@ -34,7 +37,7 @@ impl App {
         let (x, y) = Popup::centered(sp::W, sp::H);
         let win = Popup::new(x, y, sp::W, sp::H, Some(self.bar_hwnd()), "配置");
         let devices = crate::audio::devices::list_devices();
-        self.settings_win = Some(SettingsWin { win, tab: 0, focus: None, edit: None, hover: None, hover_tab: None, capturing: None, devices, status: String::new(), drag: None });
+        self.settings_win = Some(SettingsWin { win, tab: 0, focus: None, edit: None, hover: None, hover_tab: None, capturing: None, devices, status: String::new(), drag: None, hover_cell: None, slider_drag: None });
         self.paint_settings();
         if let Some(s) = &self.settings_win {
             s.win.show(true);
@@ -77,7 +80,7 @@ impl App {
     pub fn paint_settings(&mut self) {
         let items = self.settings_items();
         let Some(sw) = self.settings_win.as_mut() else { return };
-        let m = SettingsModel { tab: sw.tab, items: &items, focus: sw.focus, hover: sw.hover, hover_tab: sw.hover_tab, capturing: sw.capturing, status: &sw.status };
+        let m = SettingsModel { tab: sw.tab, items: &items, focus: sw.focus, hover: sw.hover, hover_tab: sw.hover_tab, capturing: sw.capturing, hover_cell: sw.hover_cell, status: &sw.status };
         sp::paint(&mut sw.win.canvas, &m);
         sw.win.present();
     }
@@ -115,6 +118,7 @@ impl App {
             Key::HotkeysEnabled => self.register_hotkeys(),
             Key::ShowLyric | Key::ShowCover | Key::EmbeddedPic | Key::LocalPic | Key::AutoDownload | Key::UseCustomDir => p.refresh_now_playing(&self.now, true),
             Key::TaskbarLyric | Key::TaskbarTwoLines => self.sync_taskbar_lyric(),
+            Key::Frost => self.apply_theme(),
             Key::DeskLyric | Key::DeskLyricLocked => self.sync_desk_lyric(),
             _ => {}
         }
@@ -144,8 +148,22 @@ impl App {
                 self.set_status("已取消关联");
             }
             Btn::ResetTaskbarPos => self.act(Act::TaskbarReset),
+            Btn::ResetColors => self.set_theme(|t| {
+                let frost = t.frost;
+                *t = crate::config::ThemeSettings { frost, ..Default::default() };
+            }),
         }
         p.save(false);
+    }
+
+    /// 改「颜色透明」的设置，立即应用到所有窗口
+    fn set_theme(&mut self, f: impl FnOnce(&mut crate::config::ThemeSettings)) {
+        {
+            let mut g = self.player.core.lock();
+            f(&mut g.settings.theme);
+            g.touch_settings();
+        }
+        self.apply_theme();
     }
 
     fn open_choice(&mut self, kind: ChoiceKind) {
@@ -213,6 +231,13 @@ impl App {
         let hit = items.iter().enumerate().position(|(i, (w, ..))| sp::control_rect(tab, i, w).contains(x, y) && !matches!(w, Widget::Label(_)));
         match msg {
             WM_MOUSEMOVE => {
+                if let Some(i) = self.settings_win.as_ref()?.slider_drag {
+                    let v = sp::slider_value(sp::row_rect(tab, i), x);
+                    self.set_theme(|t| t.border_alpha = v);
+                    self.settings_win.as_mut()?.win.dirty = true;
+                    self.paint_settings();
+                    return Some(LRESULT(0));
+                }
                 let sw = self.settings_win.as_mut()?;
                 if let Some((dx, dy)) = sw.drag {
                     let (cx, cy) = super::resize::cursor();
@@ -220,9 +245,14 @@ impl App {
                     return Some(LRESULT(0));
                 }
                 let ht = (0..model::TABS.len()).find(|i| sp::tab_rect(*i).contains(x, y));
-                if hit != sw.hover || ht != sw.hover_tab {
+                let cell = hit.and_then(|i| match items[i].0 {
+                    Widget::Swatches(k) => sp::swatch_at(sp::control_rect(tab, i, &items[i].0), k, x, y),
+                    _ => None,
+                });
+                if hit != sw.hover || ht != sw.hover_tab || cell != sw.hover_cell {
                     sw.hover = hit;
                     sw.hover_tab = ht;
+                    sw.hover_cell = cell;
                     sw.win.dirty = true;
                 }
             }
@@ -249,6 +279,21 @@ impl App {
                         Widget::Text(..) => self.settings_win.as_mut()?.focus = Some(i),
                         Widget::Hotkey(_) => self.settings_win.as_mut()?.capturing = Some(i),
                         Widget::Button(_, b) => self.press_button(b),
+                        Widget::Swatches(k) => {
+                            if let Some(rgb) = sp::swatch_at(sp::control_rect(tab, i, &w), k, x, y).and_then(|n| k.presets().get(n).copied()) {
+                                self.set_theme(|t| match k {
+                                    model::Swatch::Body => t.body = rgb,
+                                    model::Swatch::Focus => t.focus = rgb,
+                                });
+                                self.player.save(false);
+                            }
+                        }
+                        Widget::Slider(_) => {
+                            let v = sp::slider_value(sp::row_rect(tab, i), x);
+                            self.set_theme(|t| t.border_alpha = v);
+                            self.settings_win.as_mut()?.slider_drag = Some(i);
+                            unsafe { SetCapture(hwnd) };
+                        }
                         Widget::Label(_) => {}
                     }
                 } else {
@@ -261,7 +306,11 @@ impl App {
                 self.settings_win.as_mut()?.win.dirty = true;
             }
             WM_LBUTTONUP => {
-                self.settings_win.as_mut()?.drag = None;
+                let sw = self.settings_win.as_mut()?;
+                sw.drag = None;
+                if sw.slider_drag.take().is_some() {
+                    self.player.save(false);
+                }
                 unsafe {
                     let _ = ReleaseCapture();
                 }

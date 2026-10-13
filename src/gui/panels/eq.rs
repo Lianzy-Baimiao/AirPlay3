@@ -2,6 +2,7 @@
 
 use super::eq_labels as L;
 use super::frame;
+use crate::gui::theme;
 use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::{Font, Hint};
 use crate::skin::icons;
@@ -49,7 +50,7 @@ fn bitmap(c: &mut Canvas, x: i32, y: i32, rows: &[&str; 5], col: Rgba) {
 pub fn paint(c: &mut Canvas, m: &EqModel) {
     let body = frame::panel(c, m.strip_hover);
     c.push_clip(body);
-    let label = Rgba::gray(L::LABEL_GRAY);
+    let label = theme::g(L::LABEL_GRAY);
     for (x, y, rows) in [L::FREQ, L::DB_TOP, L::DB_MID, L::DB_BOT] {
         bitmap(c, x, y, &rows, label);
     }
@@ -63,26 +64,26 @@ pub fn paint(c: &mut Canvas, m: &EqModel) {
                 c.fill(R::new(sx + 4, y, w, 1), label);
             }
         }
-        c.fill(R::new(sx - 1, RAIL_TOP - 1, 3, RAIL_H + 2), Rgba::gray(22));
+        c.fill(R::new(sx - 1, RAIL_TOP - 1, 3, RAIL_H + 2), theme::g(22));
         if m.enabled {
             let db = if i == 0 { m.preamp } else { m.bands[i - 1] };
             let ky = knob_y(db);
-            c.fill(R::new(sx - 1, ky, 3, RAIL_TOP + RAIL_H - ky), Rgba::gray(110));
-            c.round_rect(R::new(sx - 4, ky - 2, 9, 5), 2.0, Some(Rgba::gray(210)), None);
+            c.fill(R::new(sx - 1, ky, 3, RAIL_TOP + RAIL_H - ky), theme::g(110));
+            c.round_rect(R::new(sx - 4, ky - 2, 9, 5), 2.0, Some(theme::g(210)), None);
         }
     }
     button(c, BTN_ENABLE, if m.enabled { "禁用" } else { "启用" }, true, m.hot_button == Some(0));
     button(c, BTN_RESET, "重置", m.enabled, m.hot_button == Some(1));
     button(c, BTN_PRESET, m.preset, m.enabled, m.hot_button == Some(2));
-    c.icon(icons::TRI_DOWN, BTN_PRESET.right() - 16, BTN_PRESET.y + 4, Rgba::gray(if m.enabled { 150 } else { 70 }));
+    c.icon(icons::TRI_DOWN, BTN_PRESET.right() - 16, BTN_PRESET.y + 4, theme::g(if m.enabled { 150 } else { 70 }));
     c.pop_clip();
 }
 
 fn button(c: &mut Canvas, r: R, label: &str, active: bool, hot: bool) {
     let (fill, edge, text) = match (active, hot) {
-        (true, true) => (Rgba::gray(85), Rgba::gray(130), Rgba::gray(250)),
-        (true, false) => (Rgba::gray(69), Rgba::gray(117), Rgba::gray(230)),
-        (false, _) => (Rgba::gray(40), Rgba::gray(52), Rgba::gray(80)),
+        (true, true) => (theme::g(85), theme::g(130), theme::g(250)),
+        (true, false) => (theme::g(69), theme::g(117), theme::g(230)),
+        (false, _) => (theme::g(40), theme::g(52), theme::g(80)),
     };
     c.fill(r, edge);
     c.fill(r.shrink(1), fill);

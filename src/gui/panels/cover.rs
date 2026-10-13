@@ -1,13 +1,13 @@
 //! 歌词图片面板（原版 304×227）：说明文字、大封面 + 歌曲信息浮层，播放一会儿后切换为小封面 + 滚动歌词。
 
 use super::frame;
+use crate::gui::theme;
 use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::{Font, Hint};
 use crate::skin::{icons, skin};
 
 pub const W: i32 = 304;
 pub const H: i32 = 225;
-pub const ORANGE: Rgba = Rgba(255, 124, 44, 255);
 const FONT: Font = Font::px(12.0, false);
 /// 外框尺寸范围：原版主体 280×204 ～ 800×800，加上标题条与边（宽 +4、高 +21）
 pub const MIN: (i32, i32) = (284, 225);
@@ -45,13 +45,16 @@ pub struct CoverModel<'a> {
 pub fn paint(c: &mut Canvas, m: &CoverModel) {
     let body = frame::panel(c, m.strip_hover);
     c.push_clip(body);
-    let hint = m.status.unwrap_or("歌曲及歌词相关信息均来自互联网");
-    let tw = crate::gui::text::measure(hint, FONT).0 as i32;
-    c.text(hint, FONT, (c.w - tw) / 2, body.y + 3, Rgba::gray(150), Hint::ClearType);
+    // 顶部的说明文字：与原版相同，只在有歌曲时显示（空闲时只有标志）
+    if m.active || m.status.is_some() {
+        let hint = m.status.unwrap_or("歌曲及歌词相关信息均来自互联网");
+        let tw = crate::gui::text::measure(hint, FONT).0 as i32;
+        c.text(hint, FONT, (c.w - tw) / 2, body.y + 3, theme::g(150), Hint::ClearType);
+    }
     if !m.active {
         let logo = &skin().logo;
         let (x, y) = ((c.w - logo.w as i32) / 2, body.y + 60 + (c.h - H) / 2);
-        c.sprite(logo, x, y, Rgba::gray(255));
+        c.sprite(logo, x, y, theme::g(255));
         c.pop_clip();
         return;
     }
@@ -83,7 +86,7 @@ fn draw_cover(c: &mut Canvas, cover: Option<(&[u8], u32, u32)>, r: R) {
                 c.image(row, w, 1, R::new(r.x, r.bottom() + 1 + dy, r.w, 1), a);
             }
         }
-        None => c.sprite(&skin().cover, r.x + (r.w - 128) / 2, r.y + (r.h - 128) / 2, Rgba::gray(70)),
+        None => c.sprite(&skin().cover, r.x + (r.w - 128) / 2, r.y + (r.h - 128) / 2, theme::g(70)),
     }
 }
 
@@ -99,7 +102,7 @@ fn lyric_lines(c: &mut Canvas, m: &CoverModel, small: R, body: R, a: u8) {
         if y < body.y || y > body.bottom() {
             continue;
         }
-        let col = if m.current == Some(i as usize) { ORANGE } else { Rgba::gray((230 - d.abs().min(6) * 22) as u8) };
+        let col = if m.current == Some(i) { theme::focus() } else { theme::g((230 - d.abs().min(6) * 22) as u8) };
         c.text(line, FONT, x, y, col.alpha(a), Hint::ClearType);
     }
     c.pop_clip();

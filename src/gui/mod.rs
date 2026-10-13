@@ -19,6 +19,7 @@ mod snap;
 mod settingswin;
 mod state;
 mod taskbar;
+pub mod theme;
 mod tray;
 mod wnd;
 pub mod text;

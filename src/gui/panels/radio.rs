@@ -2,6 +2,7 @@
 
 use super::frame;
 use super::search::{button, field};
+use crate::gui::theme;
 use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::{self, Font, Hint};
 
@@ -17,7 +18,6 @@ pub const BTN_FAV: R = R::new(244, 382, 78, 24);
 pub const BTN_PLAY: R = R::new(326, 382, 60, 24);
 pub const BTN_CLOSE: R = R::new(390, 382, 60, 24);
 const FONT: Font = Font::px(12.0, false);
-const ORANGE: Rgba = Rgba(234, 115, 43, 255);
 
 pub fn tab_rect(i: usize) -> R {
     R::new(10 + i as i32 * 52, 28, 50, 22)
@@ -49,26 +49,26 @@ pub struct RadioModel<'a> {
 
 pub fn paint(c: &mut Canvas, m: &RadioModel) {
     let body = frame::panel(c, 0.0);
-    c.text("网络电台", FONT, 10, 4, Rgba::gray(200), Hint::ClearType);
+    c.glow_text("网络电台", FONT, 10, 4, Rgba::gray(235), frame::TITLE_HALO, 2);
     c.push_clip(body);
     for (i, name) in TABS.iter().enumerate() {
         let r = tab_rect(i);
         let on = m.tab == i;
         if on {
-            c.round_rect(r, 3.0, Some(Rgba::gray(56)), Some(Rgba::gray(96)));
+            c.round_rect(r, 3.0, Some(theme::g(56)), Some(theme::g(96)));
         } else if m.hot == Some(10 + i) {
-            c.round_rect(r, 3.0, Some(Rgba::gray(42)), None);
+            c.round_rect(r, 3.0, Some(theme::g(42)), None);
         }
         let tw = text::measure(name, FONT).0 as i32;
-        c.text(name, FONT, r.x + (r.w - tw) / 2, r.y + 4, if on { ORANGE } else { Rgba::gray(190) }, Hint::ClearType);
+        c.text(name, FONT, r.x + (r.w - tw) / 2, r.y + 4, if on { theme::focus() } else { theme::g(190) }, Hint::ClearType);
     }
     button(c, BTN_REGION, &format!("{} ▾", m.region), true, m.hot == Some(0));
     field(c, FIELD_SEARCH, m.query, m.focus);
     if m.query.is_empty() && !m.focus {
-        c.text("搜索电台名称", FONT, FIELD_SEARCH.x + 6, FIELD_SEARCH.y + 4, Rgba::gray(100), Hint::ClearType);
+        c.text("搜索电台名称", FONT, FIELD_SEARCH.x + 6, FIELD_SEARCH.y + 4, theme::g(100), Hint::ClearType);
     }
     button(c, BTN_SEARCH, "搜索", true, m.hot == Some(1));
-    c.fill(LIST, Rgba::gray(26));
+    c.fill(LIST, theme::g(26));
     c.push_clip(LIST);
     for (i, r) in m.rows.iter().enumerate() {
         let y = LIST.y + i as i32 * ROW_H - m.scroll;
@@ -77,28 +77,28 @@ pub fn paint(c: &mut Canvas, m: &RadioModel) {
         }
         let row = R::new(LIST.x, y, LIST.w, ROW_H);
         if m.selected == Some(i) {
-            c.fill(row, Rgba::gray(75));
+            c.fill(row, theme::g(75));
         } else if m.hover == Some(i) {
-            c.fill(row, Rgba::gray(48));
+            c.fill(row, theme::g(48));
         } else if i % 2 == 1 {
-            c.fill(row, Rgba::gray(34));
+            c.fill(row, theme::g(34));
         }
         let mark = if r.playing { "▶" } else if r.favorite { "★" } else { "" };
-        c.text(mark, FONT, LIST.x + 6, y + 3, if r.playing { ORANGE } else { Rgba(240, 190, 60, 255) }, Hint::ClearType);
+        c.text(mark, FONT, LIST.x + 6, y + 3, if r.playing { theme::focus() } else { Rgba(240, 190, 60, 255) }, Hint::ClearType);
         let fw = text::measure(&r.format, FONT).0 as i32;
         c.push_clip(R::new(LIST.x + 24, y, LIST.w - 36 - fw, ROW_H));
-        let w = c.text(r.name, FONT, LIST.x + 24, y + 3, if r.playing { ORANGE } else { Rgba::gray(232) }, Hint::ClearType);
-        c.text(&r.detail, FONT, LIST.x + 36 + w, y + 3, Rgba::gray(130), Hint::ClearType);
+        let w = c.text(r.name, FONT, LIST.x + 24, y + 3, if r.playing { theme::focus() } else { theme::g(232) }, Hint::ClearType);
+        c.text(&r.detail, FONT, LIST.x + 36 + w, y + 3, theme::g(130), Hint::ClearType);
         c.pop_clip();
-        c.text(&r.format, FONT, LIST.right() - fw - 8, y + 3, Rgba::gray(150), Hint::ClearType);
+        c.text(&r.format, FONT, LIST.right() - fw - 8, y + 3, theme::g(150), Hint::ClearType);
     }
     if m.rows.is_empty() {
         let tip = if m.tab == 2 { "还没有收藏的电台：选中电台后点「收藏」" } else { "" };
-        c.text(tip, FONT, LIST.x + 12, LIST.y + 12, Rgba::gray(120), Hint::ClearType);
+        c.text(tip, FONT, LIST.x + 12, LIST.y + 12, theme::g(120), Hint::ClearType);
     }
     c.pop_clip();
     c.push_clip(R::new(12, 382, BTN_FAV.x - 20, 24));
-    c.text(m.status, FONT, 12, 386, Rgba::gray(150), Hint::ClearType);
+    c.text(m.status, FONT, 12, 386, theme::g(150), Hint::ClearType);
     c.pop_clip();
     button(c, BTN_FAV, m.fav_label, m.selected.is_some(), m.hot == Some(2));
     button(c, BTN_PLAY, "播放", m.selected.is_some(), m.hot == Some(3));

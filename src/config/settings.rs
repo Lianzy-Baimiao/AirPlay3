@@ -353,20 +353,23 @@ impl HotkeySettings {
     }
 }
 
+/// 「配置 → 颜色透明」（与原版相同的四项）。旧版本留下的 base / accent / opacity 字段不再使用（读取时忽略）
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct ThemeSettings {
-    /// 整体颜色
-    pub base: [u8; 3],
-    /// 焦点颜色
-    pub accent: [u8; 3],
-    /// 边框透明 (窗体不透明度 0.6 ..= 1.0)
-    pub opacity: f32,
+    /// 整体颜色（面板主体；文字、分隔线、玻璃的色调都由它推出）
+    pub body: [u8; 3],
+    /// 焦点颜色（当前播放、当前歌词、选中项）
+    pub focus: [u8; 3],
+    /// 边框透明：播放条与标题条玻璃的不透明度（0 = 原版默认，完全通透）
+    pub border_alpha: u8,
+    /// 透明雾化：窗口后面的桌面模糊（毛玻璃）
+    pub frost: bool,
 }
 
 impl Default for ThemeSettings {
     fn default() -> Self {
-        Self { base: [36, 38, 46], accent: [56, 196, 160], opacity: 1.0 }
+        Self { body: [0x20, 0x20, 0x20], focus: [0xFF, 0xA0, 0x40], border_alpha: 0, frost: false }
     }
 }
 
@@ -496,6 +499,10 @@ mod tests {
         let partial: Settings = serde_json::from_str(r#"{"playback":{"volume":0.3}}"#).unwrap();
         assert_eq!(partial.playback.volume, 0.3);
         assert!(partial.playback.resume_last);
+        // 旧版本的颜色设置（base / accent / opacity，从没用过）读取时忽略，用原版的默认颜色
+        let old: Settings = serde_json::from_str(r#"{"theme":{"base":[36,38,46],"accent":[56,196,160],"opacity":1.0}}"#).unwrap();
+        assert_eq!(old.theme, ThemeSettings::default());
+        assert_eq!((old.theme.body, old.theme.focus, old.theme.border_alpha, old.theme.frost), ([0x20; 3], [0xFF, 0xA0, 0x40], 0, false));
         assert_eq!(partial.audio.buffer_ms, 60);
     }
 

@@ -8,7 +8,7 @@ use super::app::App;
 use super::canvas::{Canvas, R, Rgba};
 use super::desklyric::LineState;
 use super::popup::Popup;
-use super::text::{self, Font, Hint};
+use super::text::{self, Font};
 use crate::skin::icons;
 
 pub const W: i32 = 304;
@@ -64,20 +64,14 @@ pub struct MiniDrag {
     taskbar: Option<R>,
 }
 
+/// 一条迷你条：与播放条相同的半透明玻璃
 fn strip(c: &mut Canvas, hover: bool) {
     c.clear();
-    let r = R::new(2, 2, W - 4, H - 4);
-    c.push_clip(r.shrink(1));
-    c.vgrad(r.shrink(1), Rgba::gray(8), Rgba::gray(22));
-    if hover {
-        for x in r.x..r.right() {
-            let d = ((x - W / 2) as f32).abs() / (W as f32 / 2.0);
-            c.fill(R::new(x, r.y, 1, r.h), Rgba::gray(255).alpha((70.0 * (1.0 - d)) as u8));
-        }
-    }
-    c.pop_clip();
-    c.round_rect(r, 3.0, None, Some(Rgba::gray(85)));
+    super::panels::bar::glass(c, R::new(2, 2, W - 4, H - 4), 3.0, if hover { 1.0 } else { 0.0 });
 }
+
+/// 文字后面的暗色光晕：玻璃几乎透明，放在什么背景上都看得清
+const HALO: Rgba = Rgba(16, 16, 16, 190);
 
 impl App {
     pub fn toggle_minibar(&mut self) {
@@ -159,14 +153,14 @@ impl App {
         let c = &mut m.top.canvas;
         strip(c, m.hover[0]);
         let v = if muted { 0.0 } else { vol };
-        c.round_rect(R::new(7, 6, 5, 12), 2.0, Some(Rgba::gray(60)), None);
+        c.round_rect(R::new(7, 6, 5, 12), 2.0, Some(Rgba(0x9F, 0x9F, 0x9F, 107)), None);
         let fh = (12.0 * v) as i32;
         c.push_clip(R::new(7, 18 - fh, 5, fh));
-        c.round_rect(R::new(7, 6, 5, 12), 2.0, Some(Rgba::gray(200)), None);
+        c.round_rect(R::new(7, 6, 5, 12), 2.0, Some(Rgba(0xE3, 0xE3, 0xE3, 208)), None);
         c.pop_clip();
         let name = if title.is_empty() { "AIRPLAY".to_string() } else { title };
         c.push_clip(R::new(20, 3, 98, 18));
-        c.text(&name, FONT, 22, 4, Rgba::gray(if m.hover[0] { 230 } else { 120 }), Hint::Gray);
+        c.glow_text(&name, FONT, 22, 4, Rgba::gray(if m.hover[0] { 235 } else { 200 }), HALO, 2);
         c.pop_clip();
         let a = if m.hover[0] { 255 } else { 200 };
         c.icon(icons::PREV, BTN_PREV.x, BTN_PREV.y - 2, Rgba::gray(230).alpha(a));
@@ -182,7 +176,7 @@ impl App {
         let tw = text::measure(&m.last.text, FONT).0 as i32;
         let x = if tw <= inner.w { inner.x + (inner.w - tw) / 2 } else { inner.x - ((tw - inner.w) as f32 * m.last.progress) as i32 };
         c.push_clip(inner);
-        c.glow_text(&m.last.text, FONT, x, 4, Rgba::gray(225), Rgba(255, 255, 255, 40), 2);
+        c.glow_text(&m.last.text, FONT, x, 4, Rgba::gray(235), HALO, 2);
         c.pop_clip();
         m.bottom.present();
     }

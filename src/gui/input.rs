@@ -92,7 +92,8 @@ impl App {
         let (w, _) = self.sizes.size(pane);
         let in_strip = pane != Pane::Bar && y < frame::STRIP_H + 2;
         if in_strip {
-            if pane != Pane::List && x >= w - 24 && self.ui.strip_hover[Self::idx(pane)] > 0.5 {
+            let close = frame::close_rect(w);
+            if crate::gui::canvas::R::new(close.x - 3, 0, close.w + 6, frame::STRIP_H + 2).contains(x, y) && self.ui.strip_hover[Self::idx(pane)] > 0.5 {
                 return self.act(match pane {
                     Pane::Cover => Act::TogglePane(0),
                     Pane::Eq => Act::TogglePane(1),

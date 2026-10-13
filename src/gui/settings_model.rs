@@ -2,11 +2,13 @@
 
 use crate::config::{HotkeyAction, ProxyKind, Settings};
 
-pub const TABS: [&str; 7] = ["基本设置", "音频设备", "歌词图片", "桌面歌词", "网络连接", "全局热键", "文件关联"];
+pub const TABS: [&str; 8] = ["基本设置", "音频设备", "歌词图片", "桌面歌词", "网络连接", "全局热键", "文件关联", "颜色透明"];
 /// 「桌面歌词」分页（桌面歌词 + 任务栏歌词；原版没有这两个功能）
 pub const TAB_DESK: usize = 3;
 /// 「全局热键」分页（行更密）
 pub const TAB_HOTKEYS: usize = 5;
+/// 「颜色透明」分页（与原版相同：整体颜色、焦点颜色、边框透明、透明雾化）
+pub const TAB_COLOR: usize = 7;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Key {
@@ -34,6 +36,7 @@ pub enum Key {
     DeskLyricLocked,
     TaskbarLyric,
     TaskbarTwoLines,
+    Frost,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -81,6 +84,29 @@ pub enum Widget {
     Text(Field, &'static str),
     Hotkey(HotkeyAction),
     Button(&'static str, Btn),
+    /// 色块（整体颜色 3 行 × 16、焦点颜色 1 行 × 16）
+    Swatches(Swatch),
+    /// 滑块（边框透明 0 ~ 255）
+    Slider(&'static str),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Swatch {
+    Body,
+    Focus,
+}
+
+impl Swatch {
+    pub fn presets(self) -> &'static [[u8; 3]] {
+        match self {
+            Swatch::Body => &crate::gui::theme::BODY_PRESETS,
+            Swatch::Focus => &crate::gui::theme::FOCUS_PRESETS,
+        }
+    }
+
+    pub fn rows(self) -> i32 {
+        (self.presets().len() / 16) as i32
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -101,6 +127,7 @@ pub enum Btn {
     Associate,
     Unassociate,
     ResetTaskbarPos,
+    ResetColors,
 }
 
 pub fn get(s: &Settings, k: Key) -> bool {
@@ -129,6 +156,7 @@ pub fn get(s: &Settings, k: Key) -> bool {
         Key::DeskLyricLocked => s.desk_lyric.locked,
         Key::TaskbarLyric => s.taskbar_lyric.visible,
         Key::TaskbarTwoLines => s.taskbar_lyric.two_lines,
+        Key::Frost => s.theme.frost,
     }
 }
 
@@ -158,6 +186,7 @@ pub fn set(s: &mut Settings, k: Key, v: bool) {
         Key::DeskLyricLocked => s.desk_lyric.locked = v,
         Key::TaskbarLyric => s.taskbar_lyric.visible = v,
         Key::TaskbarTwoLines => s.taskbar_lyric.two_lines = v,
+        Key::Frost => s.theme.frost = v,
     }
 }
 
@@ -314,6 +343,16 @@ pub fn widgets(tab: usize, s: &Settings, device_name: &str) -> Vec<Widget> {
             v.push(Button("重置热键", Btn::ResetHotkeys));
             v
         }
+        TAB_COLOR => vec![
+            Check(Key::Frost, "透明雾化 (窗口后面的桌面模糊，Windows 10 以上)"),
+            Label("整体颜色".into()),
+            Swatches(Swatch::Body),
+            Label("焦点颜色".into()),
+            Swatches(Swatch::Focus),
+            Slider("边框透明"),
+            Label("边框：播放条和各面板标题条的半透明玻璃，向左拖动更通透".into()),
+            Button("恢复默认颜色", Btn::ResetColors),
+        ],
         _ => vec![
             Label("把常见音乐格式关联到 AirPlay3（只写入当前用户的注册表）".into()),
             Button("关联音乐文件", Btn::Associate),

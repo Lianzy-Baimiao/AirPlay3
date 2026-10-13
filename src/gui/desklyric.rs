@@ -281,6 +281,8 @@ impl App {
         let (x, y) = pos.unwrap_or((a.x + (a.w - w) / 2, a.bottom() - h - 60));
         if self.desk.is_none() {
             let win = Popup::new(x, y, w, h, None, "AirPlay3 桌面歌词");
+            // 桌面歌词只有文字，不雾化
+            super::window::set_frost(win.hwnd, false);
             unsafe {
                 let ex = GetWindowLongW(win.hwnd, GWL_EXSTYLE);
                 SetWindowLongW(win.hwnd, GWL_EXSTYLE, ex | WS_EX_TOPMOST.0 as i32 | WS_EX_NOACTIVATE.0 as i32);

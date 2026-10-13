@@ -1,8 +1,10 @@
 //! 播放条（原版 304×68 分层窗口，可见区域 300×64，四周 2 像素透明边）。
 //! 空闲时：封面 + "AIRPLAY" + 标语 + 进度；鼠标悬停时淡入控制按钮（音量、上一首/暂停/下一首、窗口按钮、开关）。
 
+use super::frame;
 use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::Font;
+use crate::gui::theme;
 use crate::skin::icons;
 
 /// 默认宽度；原版可左右拖动调整宽度（WM_GETMINMAXINFO：284 ~ 804），高度固定
@@ -111,26 +113,30 @@ pub fn hit(w: i32, x: i32, y: i32, hovering: bool) -> Hot {
     checks.iter().find(|(r, _)| r.contains(x, y)).map_or(Hot::None, |c| c.1)
 }
 
-/// 背景：空闲为自上而下的暗色渐变；悬停时叠加中间亮、两侧暗的灰色渐变
+/// 背景：整条都是半透明的玻璃（与原版实测的效果相同）。空闲时几乎完全透明（不透明度自上而下 0 → 32），
+/// 悬停时变成中间更不透明的浅灰玻璃；「边框透明」在此基础上加一层不透明度。四周是亮线和柔和阴影
 fn background(c: &mut Canvas, frame: R, hover: f32) {
-    let f = frame.shrink(1);
-    let (cx, half) = (f.x as f32 + f.w as f32 / 2.0 - 0.5, (f.w as f32 / 2.0 - 0.5).max(1.0));
-    c.push_clip(f);
-    c.vgrad(f, Rgba::gray(0), Rgba::gray(21));
-    if hover > 0.0 {
-        let a = (hover * 255.0) as u8;
-        for y in f.y..f.bottom() {
-            let t = (y - f.y) as f32 / (f.h - 1) as f32;
-            let (edge, mid) = (2.0 + 55.0 * t, 66.0 + 80.0 * t);
-            for x in f.x..f.right() {
-                let d = ((x as f32 - cx).abs() / half).min(1.0);
-                let v = (mid + (edge - mid) * d) as u8;
-                c.blend(x, y, Rgba(v, v, v, a), 1.0);
-            }
+    glass(c, frame, 4.0, hover);
+}
+
+/// 播放条式的玻璃（播放条、迷你条共用）
+pub fn glass(c: &mut Canvas, frame: R, radius: f32, hover: f32) {
+    let ba = theme::border_alpha() as f32;
+    let hover = hover.clamp(0.0, 1.0);
+    let (top, bottom) = (frame.y + 1, frame.bottom() - 1);
+    let cx = frame.x as f32 + frame.w as f32 / 2.0;
+    let fill = |x: i32, y: i32| {
+        if y < top || y >= bottom {
+            return frame::HIGHLIGHT;
         }
-    }
-    c.pop_clip();
-    c.round_rect(frame, 4.0, None, Some(Rgba::gray(85)));
+        let t = (y - top) as f32;
+        let idle = t * 32.0 / 61.0;
+        let hov = (24.0 + 1.53 * t - 0.867 * (x as f32 + 0.5 - cx).abs()).max(idle);
+        let a = (ba + idle + (hov - idle) * hover).clamp(0.0, 255.0);
+        let (r, g, b) = theme::tint((141.0 + 32.0 * t / 61.0).round() as u8);
+        Rgba(r, g, b, a.round() as u8)
+    };
+    frame::shape(c, frame, radius, radius, |_| frame::HIGHLIGHT, fill);
 }
 
 fn knob(c: &mut Canvas, cx: i32, cy: i32, bright: f32) {
@@ -155,34 +161,51 @@ pub fn paint(c: &mut Canvas, m: &BarModel) {
     let lay = Layout::of(c.w);
     background(c, lay.frame, m.hover);
     let idle = 1.0 - m.hover;
-    // 封面（空闲时半透明，悬停时更暗）
-    let cover_alpha = 0.45 * idle + 0.18 * m.hover;
+    // 封面（半透明：空闲时约 56%，悬停时更淡，被控制按钮盖住）
+    let cover_alpha = 0.56 * idle + 0.18 * m.hover;
     match m.cover {
         Some((px, w, h)) => c.image(px, w, h, COVER, cover_alpha),
-        None => c.fill(COVER, Rgba(38, 69, 73, (cover_alpha * 255.0) as u8)),
+        None => {
+            // 没有封面：很淡的灰色方块和一个圆环（与原版相同的位置和不透明度）
+            let a = (32.0 * (idle + 0.5 * m.hover)) as u8;
+            c.fill(COVER, Rgba(0x50, 0x50, 0x50, a));
+            let (cx, cy) = (COVER.x as f32 + COVER.w as f32 / 2.0, COVER.y as f32 + COVER.h as f32 / 2.0);
+            for y in COVER.y..COVER.bottom() {
+                for x in COVER.x..COVER.right() {
+                    let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
+                    let ring = (2.8 - (d - 13.0).abs()).clamp(0.0, 1.0);
+                    c.blend(x, y, Rgba(0x9A, 0x9A, 0x9A, a), ring * 0.45);
+                }
+            }
+        }
     }
-    // 标题与标语（悬停时变暗，被控制按钮覆盖）
+    // 标题与标语：浅色字 + 一圈暗色的光晕（玻璃几乎透明，放在什么背景上都看得清；悬停时变淡，被控制按钮覆盖）
     let text_a = (255.0 * (0.25 + 0.75 * idle)) as u8;
+    let halo = |a: u8| Rgba(16, 16, 16, (a as f32 * 0.8) as u8);
     c.push_clip(R::new(80, 6, 150, 20));
-    c.glow_text("AIRPLAY", FONT, 82, 11, Rgba::gray(235).alpha(text_a), Rgba(255, 255, 255, (55.0 * (0.25 + 0.75 * idle)) as u8), 3);
+    c.glow_text("AIRPLAY", FONT, 82, 11, Rgba::gray(235).alpha(text_a), halo(text_a), 3);
     c.pop_clip();
     // 标语在自己的一行里上下切换（与原版一致：标题第 15~23 行，标语第 29~40 行），滑出的标语不会压到标题上
     c.push_clip(R::new(80, 25, 152, 19));
     let k = m.slogan.clamp(0.0, 1.0);
     let off = (k * 16.0).round() as i32;
     let (a0, a1) = (((1.0 - k) * text_a as f32) as u8, (k * text_a as f32) as u8);
-    c.glow_text(SLOGANS[0], FONT_SLOGAN, 82, 27 - off, Rgba::gray(235).alpha(a0), Rgba(255, 255, 255, (a0 as f32 * 0.22) as u8), 3);
-    c.glow_text(SLOGANS[1], FONT_SLOGAN, 82, 43 - off, Rgba::gray(235).alpha(a1), Rgba(255, 255, 255, (a1 as f32 * 0.22) as u8), 3);
+    c.glow_text(SLOGANS[0], FONT_SLOGAN, 82, 27 - off, Rgba::gray(235).alpha(a0), halo(a0), 3);
+    c.glow_text(SLOGANS[1], FONT_SLOGAN, 82, 43 - off, Rgba::gray(235).alpha(a1), halo(a1), 3);
     c.pop_clip();
-    // 进度
+    // 进度（空闲时是一条淡淡的浅色线）
     let frac = if m.dur > 0.0 { (m.pos / m.dur).clamp(0.0, 1.0) } else { 0.0 };
     let track = lay.track;
-    c.fill(track, Rgba::gray(69).mix(Rgba::gray(192), m.hover));
+    c.fill(track, Rgba::gray(0xAE).alpha(60).mix(Rgba::gray(192), m.hover));
     let kx = track.x + 4 + ((track.w - 8) as f64 * frac) as i32;
-    knob(c, kx, track.y + 2, 1.0);
+    // 没有在播放的歌曲时（与原版相同）空闲状态不显示进度点和时间
+    let loaded = m.dur > 0.0;
+    if loaded || m.hover > 0.0 {
+        knob(c, kx, track.y + 2, if loaded { 1.0 } else { m.hover });
+    }
     // 时间：空闲时在进度条右侧显示已播放时间；悬停时左侧已播放、右侧总时长
     let tc = Rgba::gray(117).mix(Rgba::gray(230), m.hover);
-    if m.hover < 1.0 {
+    if m.hover < 1.0 && loaded {
         c.num6x8(&fmt_time(m.pos), lay.time_x, 51, Rgba::gray(117).alpha((idle * 255.0) as u8));
     }
     if m.hover > 0.0 {
@@ -198,12 +221,12 @@ pub fn paint(c: &mut Canvas, m: &BarModel) {
 fn controls(c: &mut Canvas, m: &BarModel, l: &Layout, a: u8) {
     let (big, win_btns, toggles) = (&l.big, &l.win_btns, &l.toggles);
     let hot = |h: Hot| if m.hot == h { Rgba::gray(255).alpha(a) } else { Rgba::gray(222).alpha(a) };
-    // 音量条
-    c.round_rect(VOLUME, 3.0, Some(Rgba::gray(40).alpha(a)), None);
+    // 音量条（浅色玻璃：空的部分约 42% 不透明，音量部分约 82%）
+    c.round_rect(VOLUME, 3.0, Some(Rgba(0x9F, 0x9F, 0x9F, 107).alpha(a)), None);
     let v = if m.muted { 0.0 } else { m.volume.clamp(0.0, 1.0) };
     let fh = (VOLUME.h as f32 * v) as i32;
     c.push_clip(R::new(VOLUME.x, VOLUME.bottom() - fh, VOLUME.w, fh));
-    c.round_rect(VOLUME, 3.0, Some(Rgba::gray(190).alpha(a)), None);
+    c.round_rect(VOLUME, 3.0, Some(Rgba(0xE3, 0xE3, 0xE3, 208).alpha(a)), None);
     c.pop_clip();
     c.num6x8(&format!("{}", (v * 100.0).round() as i32), 20, 30, Rgba::gray(230).alpha(a));
     // 大号控制按钮

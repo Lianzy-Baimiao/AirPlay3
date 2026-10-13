@@ -3,7 +3,8 @@
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use super::canvas::{Canvas, R, Rgba};
+use super::theme;
+use super::canvas::{Canvas, R};
 use super::text::{self, Font, Hint};
 use super::window::{self, Surface};
 use crate::config::PlayMode;
@@ -160,30 +161,30 @@ impl Menu {
         let c = &mut self.canvas;
         c.clear();
         let all = R::new(0, 0, c.w, c.h);
-        c.fill(all, Rgba::gray(85));
-        c.fill(all.shrink(1), Rgba::gray(34));
+        c.fill(all, theme::g(85));
+        c.fill(all.shrink(1), theme::g(34));
         let (_, rows) = layout(&self.items);
         for (i, it) in self.items.iter().enumerate() {
             let (y, h) = rows[i];
             match it {
-                Item::Sep => c.fill(R::new(1, y + h / 2, c.w - 2, 1), Rgba::gray(64)),
+                Item::Sep => c.fill(R::new(1, y + h / 2, c.w - 2, 1), theme::g(64)),
                 Item::Do { label, .. } | Item::Sub { label, .. } => {
                     let (icon, checked, sub) = match it {
                         Item::Do { icon, check, .. } => (*icon, *check, false),
                         _ => (None, false, true),
                     };
                     if self.hover == Some(i) {
-                        c.fill(R::new(1, y, c.w - 2, h), Rgba::gray(85));
+                        c.fill(R::new(1, y, c.w - 2, h), theme::g(85));
                     }
                     if let Some(ic) = icon {
-                        c.icon(ic, 4, y + 2, Rgba::gray(230));
+                        c.icon(ic, 4, y + 2, theme::g(230));
                     }
-                    c.text(label, FONT, 22, y + 2, Rgba::gray(232), Hint::ClearType);
+                    c.text(label, FONT, 22, y + 2, theme::g(232), Hint::ClearType);
                     if checked {
-                        c.icon(icons::CHECK, c.w - 20, y + 3, Rgba::gray(150));
+                        c.icon(icons::CHECK, c.w - 20, y + 3, theme::g(150));
                     }
                     if sub {
-                        c.icon(icons::TRI_RIGHT, c.w - 18, y + 3, Rgba::gray(120));
+                        c.icon(icons::TRI_RIGHT, c.w - 18, y + 3, theme::g(120));
                     }
                 }
             }
