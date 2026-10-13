@@ -204,7 +204,7 @@ pub enum After {
 /// 主界面不在屏幕上的原因
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Away {
-    /// 最小化到了任务栏（播放条照常重画，任务栏缩略图是新的）
+    /// 最小化到了任务栏（什么都不画；播放条停在关闭动画最后透明的那一帧，从任务栏还原时淡入）
     Iconic,
     /// 缩到了托盘（什么都不画）
     Tray,
@@ -231,12 +231,8 @@ impl App {
     }
 
     /// 这个窗口现在要不要画（缩到托盘、最小化、迷你条时看不见的窗口不画）
-    pub fn paints(&self, p: Pane) -> bool {
-        match self.away {
-            Some(Away::Tray) => false,
-            Some(Away::Iconic) => p == Pane::Bar,
-            None => self.minibar.is_none(),
-        }
+    pub fn paints(&self, _p: Pane) -> bool {
+        self.away.is_none() && self.minibar.is_none()
     }
 
     /// 所有关闭动画都播完了（面板、播放条、迷你条）
@@ -270,6 +266,10 @@ impl App {
             self.after = None;
             self.finish(after);
         }
+        // 从任务栏还原了但没收到 WM_SIZE（比如在别的窗口过程里被同步还原）：补上
+        if self.away == Some(Away::Iconic) && self.after.is_none() && unsafe { !IsIconic(self.bar_hwnd()).as_bool() } {
+            self.on_restored();
+        }
     }
 
     /// 关闭动画播完了：真正最小化 / 缩到托盘 / 换成迷你条 / 退出
@@ -280,10 +280,8 @@ impl App {
                 unsafe {
                     let _ = ShowWindow(self.bar_hwnd(), SW_MINIMIZE);
                 }
+                // 播放条留在透明的最后一帧（关闭动画不去掉），还原时从透明淡入
                 self.away = Some(Away::Iconic);
-                // 最小化以后播放条画回完整的画面（任务栏缩略图、从任务栏还原时用）
-                self.wins[0].1.anim = None;
-                self.dirty(Pane::Bar);
             }
             After::Tray => {
                 self.hide_main(true);
@@ -307,12 +305,13 @@ impl App {
         }
     }
 
-    /// 隐藏主界面的窗口（bar = 连播放条一起），去掉它们的关闭动画（下次显示时画完整的画面）
+    /// 隐藏主界面的窗口（bar = 连播放条一起），去掉它们的关闭动画（下次显示时画完整的画面）；
+    /// 不隐藏播放条时（最小化）它的关闭动画留着，停在透明的一帧
     fn hide_main(&mut self, bar: bool) {
         for (p, w) in self.wins.iter_mut() {
-            w.anim = None;
-            w.dirty = true;
             if bar || *p != Pane::Bar {
+                w.anim = None;
+                w.dirty = true;
                 unsafe {
                     let _ = ShowWindow(w.hwnd, SW_HIDE);
                 }
@@ -365,8 +364,9 @@ impl App {
             // 关闭动画播到一半被别的程序最小化了（Win+M）：不能停在透明的画面上
             let closing = w.anim.is_some_and(|a| a.dir == Dir::Out);
             if *p == Pane::Bar {
+                // 是我们最小化的（停在透明的一帧）：淡入；被别的程序最小化的：画面是完整的，直接显示
                 if closing {
-                    w.anim = None;
+                    w.anim = Some(Anim::open(0.0));
                 }
             } else if w.visible && (!shown[i] || closing) {
                 w.anim = Some(Anim::open(0.0));
