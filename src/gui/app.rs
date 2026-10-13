@@ -84,6 +84,8 @@ pub struct App {
     pub menu: Option<super::menu::Menu>,
     pub search: Option<super::lyricdlwin::LyricSearch>,
     pub radio_win: Option<super::radiowin::RadioWin>,
+    /// 「设置用户配置数据及歌词图片缓存保存位置」窗口
+    pub cfgdir: Option<super::cfgdirwin::CfgDirWin>,
     pub settings_win: Option<super::settingswin::SettingsWin>,
     pub desk: Option<super::desklyric::DeskLyric>,
     pub taskbar: Option<super::taskbar::TaskbarLyric>,
@@ -209,6 +211,9 @@ impl App {
         if self.radio_win.as_ref().is_some_and(|r| r.win.dirty) {
             self.paint_radio();
         }
+        if self.cfgdir.as_ref().is_some_and(|w| w.win.dirty) {
+            self.paint_cfgdir();
+        }
         for i in 0..self.wins.len() {
             let (pane, ref w) = self.wins[i];
             if !w.dirty || !w.visible {
@@ -323,7 +328,7 @@ pub fn run(player: Player, now: SharedNow, cmds: Sender<Command>, start_hidden: 
     bar_slot.store(bar_hwnd.0 as isize, std::sync::atomic::Ordering::Release);
     let ui = super::state::UiState::new(&player);
     let (async_tx, async_rx) = crossbeam_channel::unbounded();
-    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, radio_win: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, smtc: None, async_tx, async_rx };
+    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, radio_win: None, cfgdir: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, smtc: None, async_tx, async_rx };
     APP.with(|a| *a.borrow_mut() = Some(app));
     super::wnd::after_create(start_hidden);
     unsafe {

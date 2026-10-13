@@ -172,7 +172,7 @@ pub fn layout(tab: usize) -> Vec<Item> {
             key(pr(311, 106, 476), Teal, "点关闭按钮缩到托盘", Key::CloseToTray),
             key(pr(126, 131, 476), Lavender, "拖拽添加文件(夹)到\"音乐列表\"后立即播放", Key::PlayAfterDrop),
             key(pr(126, 151, 476), Lavender, "添加文件夹时忽略压缩文件 (提高添加速度)", Key::IgnoreArchives),
-            pill(pr(126, 346, 476), Grey, "打开用户配置数据及歌词图片缓存的保存位置", Toggle::Act(Btn::DataDir)),
+            pill(pr(126, 346, 476), Grey, "设置用户配置数据及歌词图片缓存保存位置", Toggle::Act(Btn::DataDir)),
         ],
         TAB_AUDIO => vec![
             it(R::new(122, 39, 360, 19), Drop(Choice::Device)),

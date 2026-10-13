@@ -6,6 +6,7 @@ pub mod app;
 pub mod canvas;
 pub mod draw;
 mod input;
+mod cfgdirwin;
 mod lyricdlwin;
 mod lyricwin;
 mod menu;
@@ -43,5 +44,17 @@ impl Canvas {
             out.put_pixel(x, y, image::Rgba([un(p[2]), un(p[1]), un(p[0]), p[3]]));
         }
         out.save(path).map_err(|e| e.to_string())
+    }
+
+    /// 仅调试构建：AIRPLAY3_DUMP=<目录> 时把画面存成 <目录>\<name>.png，用来和原版逐像素对比
+    #[cfg(debug_assertions)]
+    pub fn dump(&self, name: &str) {
+        if let Some(dir) = std::env::var_os("AIRPLAY3_DUMP") {
+            let dir = std::path::PathBuf::from(dir);
+            let tmp = dir.join(format!("{name}.tmp.png"));
+            if self.save_png(&tmp).is_ok() {
+                let _ = std::fs::rename(&tmp, dir.join(format!("{name}.png")));
+            }
+        }
     }
 }

@@ -21,6 +21,8 @@ pub enum AsyncMsg {
     /// 手动下载专辑图片的结果：Ok(是否找到)
     CoverDone(Result<crate::player::nowplaying::CoverFound, String>),
     LyricDir(std::path::PathBuf),
+    /// 「配置文件存放位置」窗口的选文件夹对话框关了（取消时为 None）
+    DataDir(Option<std::path::PathBuf>),
     /// 电台列表（请求序号, 结果）
     Radio(u64, Result<Vec<crate::radio::Station>, String>),
 }
@@ -393,6 +395,7 @@ impl App {
                         self.paint_search();
                     }
                 }
+                AsyncMsg::DataDir(d) => self.on_cfgdir_picked(d),
                 AsyncMsg::LyricDir(d) => {
                     let mut g = self.player.core.lock();
                     g.settings.lyrics.custom_dir = Some(d.to_string_lossy().into_owned());

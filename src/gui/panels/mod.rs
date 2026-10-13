@@ -4,6 +4,7 @@ pub mod bar;
 pub mod cover;
 pub mod eq;
 mod eq_labels;
+pub mod cfgdir;
 pub mod frame;
 pub mod lyricdl;
 pub mod pill;

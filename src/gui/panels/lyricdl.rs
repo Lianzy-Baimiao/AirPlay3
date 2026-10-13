@@ -82,10 +82,9 @@ fn ramp(u: f32) -> f32 {
     P.windows(2).find(|w| u < w[1].0).map_or(0.0, |w| (w[0].1 + (w[1].1 - w[0].1) * (u - w[0].0) / (w[1].0 - w[0].0)).max(0.0))
 }
 
-/// 窗口四周的阴影：上下、左右四条，每条的强度 = 离窗口的距离的衰减 × 沿着条离角的远近；
-/// 紧贴窗口外面还有一道 1 像素的暗线（在角上淡下去）。都照原版量出来的
-fn shadow(c: &mut Canvas) {
-    let body = b(0, 0, 350, 600);
+/// 窗口四周的阴影（窗口在 body，四周留 SHADOW 像素）：上下、左右四条，每条的强度 = 离窗口的距离的衰减
+/// × 沿着条离角的远近；紧贴窗口外面还有一道 1 像素的暗线（在角上淡下去）。都照原版量出来的
+pub fn shadow(c: &mut Canvas, body: R) {
     let fall = |d: i32| if d <= 2 { 1.0 } else { FALLOFF.get(d as usize - 2).map_or(0.0, |&a| a as f32 / 38.0) };
     for y in 0..c.h {
         for x in 0..c.w {
@@ -126,13 +125,18 @@ fn field(c: &mut Canvas, r: R, s: &str, icon: crate::skin::Cell, focused: bool) 
     c.pop_clip();
 }
 
-/// 按钮：外圈暗、里圈亮的两道边，中间是底色
+/// 按钮：外圈暗、里圈亮的两道边，中间是底色（放在灰色底上）
 pub fn button(c: &mut Canvas, r: R, label: &str, enabled: bool, hot: bool) {
-    let (outer, inner, fill, ink) = match (enabled, hot) {
+    let colors = match (enabled, hot) {
         (true, true) => (0x33, 0xA0, 0x6E, 0xF8),
         (true, false) => (0x33, 0x89, 0x5F, 0xE6),
         _ => (0x3B, 0x59, 0x4B, 0x6C),
     };
+    button_ex(c, r, label, colors);
+}
+
+/// 按钮：(外圈, 里圈, 底色, 文字) 的灰度
+pub fn button_ex(c: &mut Canvas, r: R, label: &str, (outer, inner, fill, ink): (u8, u8, u8, u8)) {
     c.fill(r, Rgba::gray(outer));
     c.fill(r.shrink(1), Rgba::gray(inner));
     c.fill(r.shrink(2), Rgba::gray(fill));
@@ -175,7 +179,7 @@ fn paint_rows(c: &mut Canvas, m: &LyricDlModel) {
 
 pub fn paint(c: &mut Canvas, m: &LyricDlModel) {
     c.clear();
-    shadow(c);
+    shadow(c, b(0, 0, 350, 600));
     let (grey, dark, line) = (theme::g(64), theme::g(32), theme::g(95));
     // 外边、上面一块灰、结果列表、预览、图片和勾选框、按钮一排
     c.fill(b(0, 0, 350, 600), theme::g(101));

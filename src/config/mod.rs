@@ -85,9 +85,33 @@ impl DataDirs {
         self.root == crate::util::exe_dir().join(PORTABLE_DIR)
     }
 
+    /// 操作系统默认位置（%APPDATA%\AirPlay3）
+    pub fn system_default() -> PathBuf {
+        std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("AirPlay3")
+    }
+
+    /// exe 旁的 AIRPLAY_CONFIG 目录
+    pub fn portable_dir() -> PathBuf {
+        crate::util::exe_dir().join(PORTABLE_DIR)
+    }
+
+    /// 现在用的是哪种位置（原版「配置文件存放位置」的三选一）：0 操作系统默认位置、1 exe 旁、2 其它位置
+    pub fn mode(&self) -> usize {
+        if self.is_portable() {
+            1
+        } else if self.root == Self::system_default() {
+            0
+        } else {
+            2
+        }
+    }
+
     /// 切换配置存放位置：复制现有数据到新目录并写/删指针文件。`None` 表示回到 exe 旁目录。
     pub fn relocate(&self, target: Option<&Path>) -> Result<DataDirs, String> {
-        let exe_dir = crate::util::exe_dir();
+        self.relocate_from(&crate::util::exe_dir(), target)
+    }
+
+    fn relocate_from(&self, exe_dir: &Path, target: Option<&Path>) -> Result<DataDirs, String> {
         let new_root = match target {
             Some(p) => p.to_path_buf(),
             None => exe_dir.join(PORTABLE_DIR),
@@ -123,4 +147,37 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relocate_copies_and_points() {
+        let base = std::env::temp_dir().join(format!("ap3_relocate_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (exe, old, custom) = (base.join("app"), base.join("old"), base.join("custom"));
+        std::fs::create_dir_all(old.join("LYRIC")).unwrap();
+        std::fs::create_dir_all(&exe).unwrap();
+        std::fs::write(old.join("config.json"), b"old").unwrap();
+        std::fs::write(old.join("LYRIC").join("a.lrc"), b"lrc").unwrap();
+        let cur = DataDirs { root: old.clone() };
+        // 其它位置：复制过去、指针文件记下位置；已有的文件不覆盖
+        std::fs::create_dir_all(&custom).unwrap();
+        std::fs::write(custom.join("config.json"), b"keep").unwrap();
+        let new = cur.relocate_from(&exe, Some(&custom)).unwrap();
+        assert_eq!(new.root, custom);
+        assert_eq!(std::fs::read(custom.join("LYRIC").join("a.lrc")).unwrap(), b"lrc");
+        assert_eq!(std::fs::read(custom.join("config.json")).unwrap(), b"keep");
+        assert_eq!(std::fs::read_to_string(exe.join(POINTER_FILE)).unwrap(), custom.to_string_lossy());
+        // exe 旁：复制到 AIRPLAY_CONFIG，删掉指针文件
+        let back = new.relocate_from(&exe, None).unwrap();
+        assert_eq!(back.root, exe.join(PORTABLE_DIR));
+        assert!(back.root.join("LYRIC").join("a.lrc").exists());
+        assert!(!exe.join(POINTER_FILE).exists());
+        // 不能搬到当前目录里面
+        assert!(back.relocate_from(&exe, Some(&back.root.join("sub"))).is_err());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 }

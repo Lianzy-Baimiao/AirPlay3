@@ -96,6 +96,9 @@ impl App {
         if let Some(r) = self.search_msg(hwnd, msg, wp, lp) {
             return Some(r);
         }
+        if let Some(r) = self.cfgdir_msg(hwnd, msg, wp, lp) {
+            return Some(r);
+        }
         if let Some(r) = self.settings_msg(hwnd, msg, wp, lp) {
             return Some(r);
         }

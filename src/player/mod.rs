@@ -40,6 +40,16 @@ impl Core {
         self.settings_rev += 1;
     }
 
+    /// 把配置数据换到新位置（复制过去，以后都存在那里）；随后要保存一次，把最新的配置、曲库写过去
+    pub fn move_data(&mut self, target: Option<&std::path::Path>) -> Result<(), String> {
+        let new = self.dirs.relocate(target)?;
+        self.dirs = new;
+        // 新位置可能有旧的配置（复制时不覆盖），强制再写一次
+        self.saved_lib_rev = self.lib.rev.wrapping_sub(1);
+        self.saved_settings_rev = self.settings_rev.wrapping_sub(1);
+        Ok(())
+    }
+
     /// 歌词查找目录：自定义目录 + 程序歌词目录
     pub fn lyric_dirs(&self) -> Vec<std::path::PathBuf> {
         let mut v = Vec::new();

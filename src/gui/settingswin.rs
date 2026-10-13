@@ -196,6 +196,8 @@ impl App {
         if !sw.status.is_empty() {
             sw.win.canvas.glow_text(&sw.status, pill::FONT, 10, 3, crate::gui::canvas::Rgba::gray(235), frame::TITLE_HALO, 2);
         }
+        #[cfg(debug_assertions)]
+        sw.win.canvas.dump("settings");
         sw.win.present();
     }
 
@@ -273,7 +275,7 @@ impl App {
     fn press_button(&mut self, b: Btn) {
         let p = self.player.clone();
         match b {
-            Btn::DataDir => crate::platform::shell::open(&p.core.lock().dirs.root.to_string_lossy()),
+            Btn::DataDir => self.open_cfgdir(),
             Btn::BrowseLyricDir => self.browse_lyric_dir(),
             Btn::ResetTaskbarPos => self.act(Act::TaskbarReset),
             Btn::ResetColors => self.set_theme(|t| {
