@@ -1,12 +1,14 @@
 // 改写自 FFmpeg 的 libavcodec/dcadec.c、dca.c（Copyright (C) 2016 foo86；dca.c 另有 Gildas Bazin 等的版权），
 // LGPL 2.1+，见 mod.rs 开头的说明。
-//! 解一个包（dcadec_decode_frame 的定点部分）：转成 16 位大端、核心、扩展子流、核心扩展、合成输出
+//! 解一个包（dcadec_decode_frame 的定点部分）：转成 16 位大端、核心、扩展子流、无损部分（XLL）、
+//! 核心扩展、合成输出
 
-use anyhow::{Result, ensure};
+use anyhow::{Result, bail, ensure};
 
 use super::core::{Core, EXSS_XLL, SYNC_CORE_BE};
 use super::exss::{Exss, SYNC_SUBSTREAM};
 use super::output::channel_map;
+use super::xll::{Xll, XllError};
 
 const MIN_PACKET: usize = 16;
 const MAX_PACKET: usize = 0x10_4000;
@@ -64,24 +66,49 @@ pub(super) struct Pcm {
     pub speakers: Vec<usize>,
 }
 
+// 包里解出了什么（DCA_PACKET_*）
+const PACKET_CORE: u32 = 0x01;
+const PACKET_EXSS: u32 = 0x02;
+const PACKET_XLL: u32 = 0x04;
+const PACKET_MASK: u32 = 0x0F;
+/// XLL 同步出错后的恢复：这一帧只用有损的部分
+const PACKET_RECOVERY: u32 = 0x10;
+/// 核心可以给残差用（上一包的核心是好的）
+const PACKET_RESIDUAL: u32 = 0x20;
+
 pub(super) struct Decoder {
     core: Box<Core>,
     exss: Exss,
+    xll: Box<Xll>,
     buf: Vec<u8>,
+    packet: u32,
     /// 只解核心子流（像 ffmpeg 的 -core_only 1）
     pub core_only: bool,
-    /// 码流里有 DTS-HD MA 无损部分（XLL，还不支持：只输出有损的核心）
-    pub has_xll: bool,
+    /// 上一包是按无损部分（XLL）输出的
+    pub via_xll: bool,
+    /// 上一包里有无损部分（不一定解得出：可能还没同步上）
+    pub xll_asset: bool,
 }
 
 impl Decoder {
     pub fn new(core_only: bool) -> Self {
-        Decoder { core: Core::new(), exss: Exss::default(), buf: Vec::new(), core_only, has_xll: false }
+        Decoder {
+            core: Core::new(),
+            exss: Exss::default(),
+            xll: Box::default(),
+            buf: Vec::new(),
+            packet: 0,
+            core_only,
+            via_xll: false,
+            xll_asset: false,
+        }
     }
 
-    /// 跳转后清掉历史
+    /// 跳转后清掉历史（dcadec_flush）
     pub fn flush(&mut self) {
         self.core.flush();
+        self.xll.flush();
+        self.packet &= PACKET_MASK;
     }
 
     pub fn decode(&mut self, packet: &[u8], out: &mut Pcm) -> Result<()> {
@@ -101,31 +128,75 @@ impl Decoder {
     }
 
     fn decode_be(&mut self, d: &[u8], out: &mut Pcm) -> Result<()> {
+        let prev = self.packet;
+        self.packet = 0;
+        self.via_xll = false;
+        self.xll_asset = false;
         let mut input = 0;
-        let has_core = rb32(d) == SYNC_CORE_BE;
-        if has_core {
+        if rb32(d) == SYNC_CORE_BE {
             self.core.parse(d, self.core_only)?;
+            self.packet |= PACKET_CORE;
             // 扩展子流按 4 字节对齐
             let frame_size = self.core.h.frame_size.next_multiple_of(4);
             if d.len() - 4 > frame_size {
                 input = frame_size;
             }
         }
-        let mut exss_ok = false;
-        if !self.core_only && rb32(&d[input..]) == SYNC_SUBSTREAM {
-            exss_ok = self.exss.parse(&d[input..]).is_ok();
-        }
-        ensure!(has_core, "没有核心子流（只有扩展子流的 DTS-HD 还不支持）");
+        let has_core = self.packet & PACKET_CORE != 0;
+
         if !self.core_only {
-            let asset = exss_ok.then_some((&d[input..], &self.exss.asset));
-            if asset.is_some_and(|(_, a)| a.extension_mask & EXSS_XLL != 0) && !self.has_xll {
-                self.has_xll = true;
-                log::warn!("DTS-HD MA 的无损部分（XLL）还不支持，只解有损的核心部分");
+            let exss = &d[input..];
+            if rb32(exss) == SYNC_SUBSTREAM && self.exss.parse(exss).is_ok() {
+                self.packet |= PACKET_EXSS;
             }
-            self.core.parse_exss(d, asset, false)?;
+            let asset = (self.packet & PACKET_EXSS != 0).then_some((exss, &self.exss.asset));
+            if let Some((data, a)) = asset.filter(|(_, a)| a.extension_mask & EXSS_XLL != 0) {
+                self.xll_asset = true;
+                match self.xll.parse(data, a) {
+                    Ok(()) => self.packet |= PACKET_XLL,
+                    // 同步出错：上一包有无损部分时用有损的部分顶上
+                    Err(XllError::Again) if prev & PACKET_XLL != 0 && has_core => {
+                        self.packet |= PACKET_XLL | PACKET_RECOVERY;
+                    }
+                    Err(_) => {}
+                }
+            }
+            if has_core {
+                self.core.parse_exss(d, asset, self.packet & PACKET_XLL != 0)?;
+            }
         }
 
+        if self.packet & PACKET_XLL != 0 {
+            if has_core {
+                // 无损部分是 96 kHz、核心是 48 kHz 时用 64 子带合成
+                let x96 = self.xll.chset[0].freq == 96000 && self.core.h.sample_rate == 48000;
+                self.core.filter_fixed(if x96 { 1 } else { -1 })?;
+                // 跳转后的第一个包：有多个声道组时只用有损的部分（与参考解码器一样，免得有咔嗒声）
+                if prev & PACKET_RESIDUAL == 0 && self.xll.nreschsets > 0 && self.xll.nchsets > 1 {
+                    self.packet |= PACKET_RECOVERY;
+                }
+                self.packet |= PACKET_RESIDUAL;
+            }
+            let recovery = self.packet & PACKET_RECOVERY != 0;
+            match self.xll.filter_frame(&self.core, has_core, recovery, out) {
+                Ok(()) => {
+                    self.via_xll = true;
+                    return Ok(());
+                }
+                // 数据不对时退回只用核心（核心已经合成好了）
+                Err(XllError::Invalid) if has_core => return self.core_output(out),
+                Err(e) => bail!("DTS-HD MA 的无损部分解不出（{e:?}）"),
+            }
+        }
+        ensure!(has_core, "没有能解的子流");
         self.core.filter_fixed(0)?;
+        self.core_output(out)?;
+        self.packet |= PACKET_RESIDUAL;
+        Ok(())
+    }
+
+    /// 只用核心输出（filter_frame_fixed 合成之后的部分）
+    fn core_output(&mut self, out: &mut Pcm) -> Result<()> {
         out.channels = self.core.finish_frame(&mut out.samples)?;
         ensure!(out.channels > 0, "没有声道");
         out.frames = self.core.npcmsamples;

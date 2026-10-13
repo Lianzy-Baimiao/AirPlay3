@@ -11,7 +11,7 @@ pub(super) const EXSS_CORE: u32 = 0x010;
 const EXSS_RSV1: u32 = 0x400;
 const EXSS_RSV2: u32 = 0x800;
 
-static SAMPLING_FREQS: [u32; 16] =
+pub(super) static SAMPLING_FREQS: [u32; 16] =
     [8000, 16000, 32000, 64000, 128000, 22050, 44100, 88200, 176400, 352800, 12000, 24000, 48000, 96000, 192000, 384000];
 
 /// 一组扬声器对（DCASpeakerPair）里的声道数

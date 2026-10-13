@@ -1,11 +1,12 @@
-//! DTS（DTS Coherent Acoustics）解码：核心子流（最多 5.1，48 kHz），以及 XCH / XXCH（6.1、7.1）、
-//! X96（96 kHz）、XBR（高码率残差）扩展。用 FFmpeg 的定点算法，与 `ffmpeg -flags bitexact` 逐样本相同。
-//! DTS-HD MA 的无损部分（XLL）和 DTS Express（LBR）还不支持：DTS-HD MA 只输出它里面有损的核心部分。
+//! DTS（DTS Coherent Acoustics）解码：核心子流（最多 5.1，48 kHz），XCH / XXCH（6.1、7.1）、
+//! X96（96 kHz）、XBR（高码率残差）扩展，以及 DTS-HD Master Audio 的无损部分（XLL，最多 8 声道、
+//! 192 kHz、24 位）。用 FFmpeg 的定点算法，与 `ffmpeg -flags bitexact` 逐样本相同。
+//! DTS Express（LBR）不支持。
 //!
 //! 文件可以是裸码流（.dts，16 位大端 / 小端、14 位）、.dtshd（带无缝播放信息），或 WAV 里的 DTS（CD 上
 //! 常见）。码流按同步字切成包，每包 512 或 1024 个样本；跳转时先解前一个包把滤波器的历史补上。
 //!
-//! 本目录（`dts/`）改写自 FFmpeg 的 DTS 解码器、解析器与解复用器（libavcodec/dca_core.c、dca_exss.c、
+//! 本目录（`dts/`）改写自 FFmpeg 的 DTS 解码器、解析器与解复用器（libavcodec/dca_core.c、dca_exss.c、dca_xll.c、
 //! dcadec.c、dcadsp.c、dcadct.c、dcadata.c、dcahuff.c、dcamath.h、dcaadpcm.h、synth_filter.c、dca.c、
 //! dca_parser.c，libavformat/dtshddec.c；Copyright (C) 2016 foo86，Copyright (C) 2004 Gildas Bazin，
 //! Copyright (C) 2004 Benjamin Zores，Copyright (C) 2006 Benjamin Larsson，Copyright (C) 2007 Konstantin
@@ -42,6 +43,11 @@ mod tables;
 mod x96;
 mod x96f;
 mod xbr;
+mod xll;
+mod xllband;
+mod xllfilt;
+mod xllhdr;
+mod xllout;
 
 use std::fs::File;
 use std::path::Path;
@@ -94,18 +100,31 @@ impl DtsDecoder {
         let mut stream = Stream::new(file, c.data.clone())?;
         let mut dec = Decoder::new(core_only);
         let (mut packet, mut pcm) = (Vec::new(), Pcm::default());
-        // 第一个能解的包定下输出格式
-        let mut first = None;
+        // 第一个能解的包定下输出格式；有无损部分（XLL）时用第一个按无损部分解出的包
+        // （无损部分可能晚几个包才同步上，那之前只有核心）
+        let (mut first, mut last) = (None, 0);
         for k in 0..MAX_BAD_START {
             if !stream.packet(k, &mut packet)? {
                 break;
             }
+            last = k;
             if dec.decode(&packet, &mut pcm).is_ok() {
-                first = Some(k);
-                break;
+                if dec.via_xll || !dec.xll_asset {
+                    first = Some(k);
+                    break;
+                }
+                first.get_or_insert(k);
             }
         }
         let Some(first) = first else { bail!("不是 DTS 文件，或解不出来") };
+        if last != first {
+            // 一直没同步上无损部分：用第一个能解的包（从头重解到它，定下格式）
+            dec = Decoder::new(core_only);
+            for k in 0..=first {
+                stream.packet(k, &mut packet)?;
+                let _ = dec.decode(&packet, &mut pcm);
+            }
+        }
         let spec = Spec { rate: pcm.rate, channels: pcm.channels as u16, mask: pcm.mask };
         let spp = pcm.frames as u64;
         let (padding, total, exact) = match c.gapless {
@@ -134,8 +153,8 @@ impl DtsDecoder {
         };
         d.speakers = d.pcm.speakers.clone();
         if first > 0 {
-            // 前面解不出的包当静音，从头重来
-            d.dec.flush();
+            // 从头重来（前面的包按定下的格式输出：解不出的、格式不同的是静音）
+            d.dec = Decoder::new(core_only);
             d.next = 0;
             d.pending = false;
         }

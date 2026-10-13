@@ -16,6 +16,11 @@ pub(super) fn norm13(a: i64) -> i32 {
 }
 
 #[inline]
+pub(super) fn norm16(a: i64) -> i32 {
+    norm(a, 16)
+}
+
+#[inline]
 pub(super) fn norm20(a: i64) -> i32 {
     norm(a, 20)
 }
@@ -48,6 +53,11 @@ pub(super) fn mul16(a: i32, b: i32) -> i32 {
 #[inline]
 pub(super) fn mul17(a: i32, b: i32) -> i32 {
     mul(a, b, 17)
+}
+
+#[inline]
+pub(super) fn mul22(a: i32, b: i32) -> i32 {
+    mul(a, b, 22)
 }
 
 #[inline]

@@ -65,13 +65,13 @@ AirPlay3 是 2012 年前后的一款国产绿色音乐播放器（airplayme.com�
   - WavPack：8 ~ 32 位整数、32 位浮点、无损和混合（有损）模式、多声道；不支持 .wvc 修正文件和 DSD
   - Musepack（.mpc）：SV7 和 SV8，无缝播放信息、跳转与官方解码器一致
   - TAK：官方编码器 2.3.3 的所有预设，8 / 16 / 24 位、最多 6 声道、8 ~ 192 kHz
-  - DTS：.dts、.dtshd（无缝播放），以及 CD 上常见的装在 WAV 里的 DTS（自动识别）；5.1 核心和 6.1 / 7.1（XCH、XXCH）、96 kHz（X96）、高码率（XBR）扩展，与 `ffmpeg -flags bitexact` 逐样本一致
+  - DTS：.dts、.dtshd（无缝播放），以及 CD 上常见的装在 WAV 里的 DTS（自动识别）；5.1 核心和 6.1 / 7.1（XCH、XXCH）、96 kHz（X96）、高码率（XBR）扩展；DTS-HD Master Audio 无损（最多 8 声道、192 kHz、24 位）。与 `ffmpeg -flags bitexact` 逐样本一致
 - 本地歌词：LRC（GBK / UTF-8 自动识别、乱码修复、模糊匹配文件名），内嵌歌词与封面
 
 ## 尚未完成
 
 - 原版的在线服务（电台、歌词、图片、自动更新）早已关闭，已换成上面说的开源服务
-- DTS-HD Master Audio 的无损部分（XLL）还不支持：这类文件放出的是其中有损的核心部分（一般是 5.1，音质与普通 DTS 相同）；只有无损部分、没有核心的文件和 DTS Express 放不了
+- 不支持 DTS Express（蓝光上的画评音轨等用的低码率格式）
 
 ## 使用
 

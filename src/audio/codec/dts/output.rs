@@ -27,6 +27,19 @@ pub(super) fn channel_map(mask: u32) -> (Vec<usize>, u32) {
 }
 
 impl Core {
+    /// 扬声器在核心里对应的输出（ff_dca_core_map_spkr：没有 Lss / Rss 时可以用 Ls / Rs）
+    pub(super) fn map_spkr(&self, spkr: usize) -> Option<usize> {
+        if self.ch_mask & (1 << spkr) != 0 {
+            Some(spkr)
+        } else if spkr == SPK_LSS && self.ch_mask & (1 << SPK_LS) != 0 {
+            Some(SPK_LS)
+        } else if spkr == SPK_RSS && self.ch_mask & (1 << SPK_RS) != 0 {
+            Some(SPK_RS)
+        } else {
+            None
+        }
+    }
+
     /// 第 ch 个主声道对应的扬声器
     pub(super) fn map_prm_ch_to_spkr(&self, ch: usize) -> Option<usize> {
         let mut pos = CHANNELS[self.h.audio_mode] as usize;

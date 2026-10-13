@@ -241,7 +241,8 @@ fn corrupt() {
     for p in &files {
         let data = std::fs::read(p).unwrap();
         let ext = p.extension().unwrap().to_string_lossy().into_owned();
-        for k in 0..8u64 {
+        let rounds = std::env::var("AP3_CORRUPT_ROUNDS").ok().and_then(|v| v.parse().ok()).unwrap_or(8u64);
+        for k in 0..rounds {
             let mut d = data.clone();
             let at = |r: u64, len: usize| (r % len.max(1) as u64) as usize;
             match k % 4 {
@@ -469,30 +470,38 @@ fn dts() {
     };
     let idx: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("refs/index.json")).unwrap()).unwrap();
     let mut bad = Vec::new();
-    for (name, info) in idx.as_object().unwrap() {
-        let path = root.join("fate").join(name);
-        let hdma = info["hdma"].as_bool().unwrap();
+    // 含无损部分的再按只解核心比一遍（与 -core_only 1 的参考比）
+    let runs: Vec<(String, bool)> = idx
+        .as_object()
+        .unwrap()
+        .iter()
+        .flat_map(|(n, i)| [(n.clone(), false)].into_iter().chain(i["hdma"].as_bool().unwrap().then(|| (n.clone(), true))))
+        .collect();
+    for (name, core_only) in runs {
+        let path = root.join("fate").join(&name);
+        let info = &idx[&name];
         let dtshd = name.ends_with(".dtshd");
         let raw = if dtshd { name.replace(".dtshd", ".dts") } else { name.clone() };
-        let (tag, key) = if hdma { (".core", "core_") } else { ("", "") };
+        let (tag, key) = if core_only { (".core", "core_") } else { ("", "") };
+        let label = format!("{name}{}", if core_only { "（核心）" } else { "" });
         let ref_frames = idx[&raw][format!("{key}frames")].as_u64().unwrap() as usize;
         if ref_frames == 0 {
-            // 没有核心子流（只有 XLL）：要报错而不是乱解
-            let r = DtsDecoder::open_with(&path, hdma);
-            println!("{} {name:34} 没有核心：{}", if r.is_err() { "OK " } else { "XX " }, r.as_ref().err().map_or(String::new(), |e| e.to_string()));
+            // 没有核心子流（只有 XLL）时只解核心：要报错而不是乱解
+            let r = DtsDecoder::open_with(&path, core_only);
+            println!("{} {label:40} 没有核心：{}", if r.is_err() { "OK " } else { "XX " }, r.as_ref().err().map_or(String::new(), |e| e.to_string()));
             if r.is_ok() {
-                bad.push(name.clone());
+                bad.push(label);
             }
             continue;
         }
         let ch = info[format!("{key}channels")].as_u64().unwrap() as usize;
         let data = std::fs::read(root.join("refs").join(format!("{raw}{tag}.raw"))).unwrap();
         let want: Vec<i32> = data.chunks_exact(4).map(|c| i32::from_le_bytes(c.try_into().unwrap()) >> 8).collect();
-        let mut dec = match DtsDecoder::open_with(&path, hdma) {
+        let mut dec = match DtsDecoder::open_with(&path, core_only) {
             Ok(d) => d,
             Err(e) => {
-                println!("XX {name:34} {e}");
-                bad.push(name.clone());
+                println!("XX {label:40} {e}");
+                bad.push(label);
                 continue;
             }
         };
@@ -516,7 +525,7 @@ fn dts() {
         let total_ok = if dtshd { total == take as f64 } else { (total - take as f64).abs() <= take as f64 * 0.02 };
         let ok = spec.channels as usize == ch && got.len() == want.len() && same == want.len() && total_ok;
         println!(
-            "{} {name:34} {}ch {}Hz {} / 参考 {} 帧，总长 {:?}{}",
+            "{} {label:40} {}ch {}Hz {} / 参考 {} 帧，总长 {:?}{}",
             if ok { "OK " } else { "XX " },
             spec.channels,
             spec.rate,
@@ -526,8 +535,8 @@ fn dts() {
             if same < want.len() { format!("，第 {same} 个样本起不同") } else { String::new() }
         );
         if !ok {
-            bad.push(name.clone());
-        } else if want.len() / ch > 50_000 {
+            bad.push(label);
+        } else if want.len() / ch > 50_000 && !core_only {
             // 跳到中间：先解前面的包补上历史。ADPCM 的历史误差是逐渐消失的，不保证逐位相同，
             // 允许 16 / 2^23（约 -114 dB）以内
             let at = want.len() / ch / 2 + 1234;
@@ -547,16 +556,16 @@ fn dts() {
                     diff.len(),
                     diff.last().unwrap().0 / ch
                 );
-                bad.push(name.clone());
+                bad.push(label);
             }
         }
     }
-    // DTS-HD MA（这个文件的 7.1 只在无损部分里，扩展只有 XLL）默认解出有损的 5.1 核心：
-    // 与 ffmpeg 解出的无损 7.1（前 6 个声道的排列相同）比，各声道的信噪比要高
+    // DTS-HD MA 的有损核心（这个文件的 7.1 只在无损部分里）与 ffmpeg 解出的无损 7.1（前 6 个声道的
+    // 排列相同）比：各声道的信噪比要高（核心与无损部分对得上）
     let name = "master_audio_7.1_24bit.dts";
     let data = std::fs::read(root.join("refs").join(format!("{name}.raw"))).unwrap();
     let want: Vec<f64> = data.chunks_exact(4).map(|c| i32::from_le_bytes(c.try_into().unwrap()) as f64 / 256.0).collect();
-    let mut dec = DtsDecoder::open(&root.join("fate").join(name)).unwrap();
+    let mut dec = DtsDecoder::open_with(&root.join("fate").join(name), true).unwrap();
     let ch = dec.spec().channels as usize;
     let (mut got, mut b) = (Vec::new(), Block::default());
     while dec.decode(&mut b).unwrap() > 0 {

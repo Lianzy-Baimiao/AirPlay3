@@ -132,8 +132,8 @@ Lesser General Public License for more details.
 
 
 DTS 解码（src/audio/codec/dts/）—— 以 GNU LGPL 2.1 或更新版本发布
-DTS decoder — derived from FFmpeg (libavcodec/dca_core.c, dca_exss.c, dcadec.c, dcadsp.c, dcadct.c,
-dcadata.c, dcahuff.c, dcamath.h, dcaadpcm.h, synth_filter.c, dca.c, dca_parser.c;
+DTS decoder — derived from FFmpeg (libavcodec/dca_core.c, dca_exss.c, dca_xll.c, dcadec.c, dcadsp.c,
+dcadct.c, dcadata.c, dcahuff.c, dcamath.h, dcaadpcm.h, synth_filter.c, dca.c, dca_parser.c;
 libavformat/dtshddec.c), https://ffmpeg.org — licensed under the GNU LGPL, version 2.1 or later
 -----------------------------------------------------------------------------------------------
 
