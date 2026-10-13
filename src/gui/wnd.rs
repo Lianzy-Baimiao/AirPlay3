@@ -43,6 +43,17 @@ pub fn after_create(start_hidden: bool) {
         let bar = app.bar_hwnd();
         let show = app.ui.snap.show;
         let s = app.player.core.lock().settings.window.clone();
+        // 原版启动时的动画：面板的框从中心长出来、播放条等 0.17 秒再淡入；直接缩到托盘启动时不画
+        if start_hidden {
+            app.away = Some(super::anim::Away::Tray);
+        } else {
+            for (p, on) in [(Pane::Bar, true), (Pane::Cover, s.show_cover), (Pane::Eq, s.show_eq), (Pane::List, s.show_list)] {
+                if on {
+                    let delay = if p == Pane::Bar { super::anim::BAR_DELAY } else { 0.0 };
+                    app.win(p).anim = Some(super::anim::Anim::open(delay));
+                }
+            }
+        }
         app.tick();
         app.flush();
         unsafe {
@@ -202,6 +213,24 @@ impl App {
                 self.quit();
                 return Some(LRESULT(0));
             }
+            // 系统发来的最小化 / 还原命令（Alt+空格菜单、任务栏按钮等）：和我们自己的按钮一样播动画
+            WM_SYSCOMMAND if pane == Pane::Bar && (wp.0 & 0xFFF0) as u32 == SC_MINIMIZE => self.minimize(),
+            WM_SYSCOMMAND if pane == Pane::Bar && (wp.0 & 0xFFF0) as u32 == SC_RESTORE && unsafe { IsIconic(hwnd).as_bool() } => self.restore(),
+            // 不经过上面的最小化（Win+M、显示桌面……）也记下来；从任务栏还原时把面板显示出来
+            WM_SIZE if pane == Pane::Bar => {
+                if wp.0 as u32 == SIZE_MINIMIZED && self.away.is_none() {
+                    self.away = Some(super::anim::Away::Iconic);
+                } else if wp.0 as u32 == SIZE_RESTORED && self.away == Some(super::anim::Away::Iconic) {
+                    self.on_restored();
+                }
+                return None;
+            }
+            // 关机、注销：立刻保存退出（来不及播动画）
+            WM_ENDSESSION if pane == Pane::Bar && wp.0 != 0 => {
+                self.quit();
+                self.quit_now();
+                return Some(LRESULT(0));
+            }
             WM_DESTROY if pane == Pane::Bar => {
                 super::tray::remove(hwnd);
                 unsafe { PostQuitMessage(0) };
@@ -220,29 +249,6 @@ impl App {
         let mut t = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
         unsafe {
             let _ = TrackMouseEvent(&mut t);
-        }
-    }
-
-    pub fn quit(&mut self) {
-        if self.quitting {
-            return;
-        }
-        self.quitting = true;
-        self.save_layout();
-        self.player.snapshot_last();
-        self.player.stop();
-        self.player.save(true);
-        let bar = self.bar_hwnd();
-        crate::platform::hotkeys::unregister_all(bar.0 as isize);
-        super::tray::remove(bar);
-        self.close_menu();
-        // 注意：此时仍在窗口过程中（App 已借用），DestroyWindow 同步发送的 WM_DESTROY 会走默认处理，
-        // 所以退出消息必须在这里直接投递，否则消息循环不结束、进程留在后台继续播放。
-        unsafe {
-            for (_, w) in &self.wins {
-                let _ = ShowWindow(w.hwnd, SW_HIDE);
-            }
-            PostQuitMessage(0);
         }
     }
 }

@@ -494,36 +494,10 @@ impl App {
         Some(LRESULT(0))
     }
 
-    pub fn minimize(&mut self) {
-        let to_tray = self.player.core.lock().settings.general.minimize_to_tray;
-        unsafe {
-            if to_tray {
-                for (_, w) in &self.wins {
-                    let _ = ShowWindow(w.hwnd, SW_HIDE);
-                }
-            } else {
-                let _ = ShowWindow(self.bar_hwnd(), SW_MINIMIZE);
-            }
-        }
-    }
-
-    pub fn restore(&mut self) {
-        unsafe {
-            for (p, w) in &self.wins {
-                if *p == Pane::Bar || w.visible {
-                    let _ = ShowWindow(w.hwnd, if *p == Pane::Bar { SW_RESTORE } else { SW_SHOWNOACTIVATE });
-                }
-            }
-            let _ = SetForegroundWindow(self.bar_hwnd());
-        }
-        self.dirty_all();
-    }
-
     pub fn on_tray(&mut self, ev: u32) {
         match ev {
             WM_LBUTTONUP => {
-                let shown = unsafe { IsWindowVisible(self.bar_hwnd()).as_bool() && !IsIconic(self.bar_hwnd()).as_bool() };
-                if shown { self.minimize() } else { self.restore() }
+                if self.is_shown() { self.minimize() } else { self.restore() }
             }
             WM_RBUTTONUP => {
                 unsafe {

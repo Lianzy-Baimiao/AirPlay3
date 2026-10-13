@@ -4,6 +4,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use super::anim::{Anim, Dir};
 use super::app::App;
 use super::menu::{Act, check};
 use super::panels::frame;
@@ -34,6 +35,8 @@ pub struct SettingsWin {
     pub status: String,
     pub drag: Option<(i32, i32)>,
     pub slider_drag: bool,
+    /// 打开时框从中心长出来（原版）、关闭时缩回去；关闭动画播完由 tick_anim 销毁窗口
+    pub anim: Option<Anim>,
 }
 
 /// 下拉框里显示的当前选项
@@ -68,8 +71,15 @@ fn assoc_on(assoc: &[bool], t: Toggle) -> bool {
 
 impl App {
     pub fn open_settings(&mut self) {
-        if let Some(s) = &self.settings_win {
-            s.win.show(true);
+        if let Some(s) = self.settings_win.as_mut() {
+            // 正在关闭时又打开：重新长出来
+            if s.anim.is_some_and(|a| a.dir == Dir::Out) {
+                s.anim = Some(Anim::open(0.0));
+                self.paint_settings();
+            }
+            if let Some(s) = &self.settings_win {
+                s.win.show(true);
+            }
             return;
         }
         let (x, y) = Popup::centered(sp::W, sp::H);
@@ -90,6 +100,7 @@ impl App {
             status: String::new(),
             drag: None,
             slider_drag: false,
+            anim: Some(Anim::open(0.0)),
         });
         self.paint_settings();
         if let Some(s) = &self.settings_win {
@@ -196,9 +207,26 @@ impl App {
         if !sw.status.is_empty() {
             sw.win.canvas.glow_text(&sw.status, pill::FONT, 10, 3, crate::gui::canvas::Rgba::gray(235), frame::TITLE_HALO, 2);
         }
+        // 打开、关闭动画（还没播完就保持待重画）
+        let animating = match sw.anim {
+            Some(a) => {
+                let going = super::anim::panel_frame(&mut sw.win.canvas, &a, if sw.inside { 1.0 } else { 0.0 });
+                if !going && a.dir == Dir::In {
+                    sw.anim = None;
+                }
+                going
+            }
+            None => false,
+        };
         #[cfg(debug_assertions)]
-        sw.win.canvas.dump("settings");
+        {
+            sw.win.canvas.dump("settings");
+            if sw.anim.is_some() || animating {
+                sw.win.canvas.dump_seq("Settings", self.started.elapsed().as_millis());
+            }
+        }
         sw.win.present();
+        sw.win.dirty = animating;
     }
 
     fn set_status(&mut self, s: impl Into<String>) {
@@ -408,6 +436,10 @@ impl App {
         if self.settings_win.as_ref()?.win.hwnd != hwnd {
             return None;
         }
+        // 正在关闭（缩回去）：不再响应鼠标、键盘
+        if self.settings_win.as_ref()?.anim.is_some_and(|a| a.dir == Dir::Out) {
+            return ((WM_MOUSEFIRST..=WM_MOUSELAST).contains(&msg) || (WM_KEYFIRST..=WM_KEYLAST).contains(&msg)).then_some(LRESULT(0));
+        }
         let (x, y) = (super::wnd::lo(lp), super::wnd::hi(lp));
         let items = self.settings_items();
         let hit = items.iter().position(|(it, _)| clickable(&it.w) && it.r.contains(x, y));
@@ -576,9 +608,19 @@ impl App {
         self.player.save(false);
     }
 
+    /// 关闭配置窗口：先缩回去（tick_anim 在动画播完后销毁窗口）
     pub fn close_settings(&mut self) -> Option<LRESULT> {
-        if let Some(mut s) = self.settings_win.take() {
-            s.win.close();
+        if let Some(s) = self.settings_win.as_mut()
+            && !s.anim.is_some_and(|a| a.dir == Dir::Out)
+        {
+            s.anim = Some(Anim::close(false));
+            s.win.dirty = true;
+            (s.drag, s.slider_drag, s.capturing) = (None, false, None);
+            unsafe {
+                if GetCapture() == s.win.hwnd {
+                    let _ = ReleaseCapture();
+                }
+            }
         }
         self.player.save(false);
         Some(LRESULT(0))

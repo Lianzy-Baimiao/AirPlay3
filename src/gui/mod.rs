@@ -6,6 +6,7 @@ pub mod app;
 pub mod canvas;
 pub mod draw;
 mod input;
+mod anim;
 mod cfgdirwin;
 mod lyricdlwin;
 mod lyricwin;
@@ -55,6 +56,16 @@ impl Canvas {
             if self.save_png(&tmp).is_ok() {
                 let _ = std::fs::rename(&tmp, dir.join(format!("{name}.png")));
             }
+        }
+    }
+
+    /// 仅调试构建：AIRPLAY3_DUMP 和 AIRPLAY3_DUMP_SEQ 都设了时，把动画的每一帧存成 <name>_<启动后的毫秒数>.png
+    #[cfg(debug_assertions)]
+    pub fn dump_seq(&self, name: &str, ms: u128) {
+        if std::env::var_os("AIRPLAY3_DUMP_SEQ").is_some()
+            && let Some(dir) = std::env::var_os("AIRPLAY3_DUMP")
+        {
+            let _ = self.save_png(&std::path::PathBuf::from(dir).join(format!("{name}_{ms:05}.png")));
         }
     }
 }

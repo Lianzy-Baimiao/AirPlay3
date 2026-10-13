@@ -31,7 +31,8 @@ pub fn panel(c: &mut Canvas, strip_hover: f32) -> R {
 fn sdf(o: R, x: i32, y: i32, r_top: f32, r_bottom: f32) -> (f32, bool) {
     let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
     let (l, t, rr, b) = (o.x as f32, o.y as f32, o.right() as f32, o.bottom() as f32);
-    let r = if py < (t + b) / 2.0 { r_top } else { r_bottom };
+    // 很小的框（出现动画刚开始）：圆角不超过一半宽高
+    let r = (if py < (t + b) / 2.0 { r_top } else { r_bottom }).min((rr - l) / 2.0).min((b - t) / 2.0);
     if r > 0.0 && (px < l + r || px > rr - r) && (py < t + r || py > b - r) {
         let (dx, dy) = (px - px.clamp(l + r, rr - r), py - py.clamp(t + r, b - r));
         ((dx * dx + dy * dy).sqrt() - r, false)

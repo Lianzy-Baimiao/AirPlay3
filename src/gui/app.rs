@@ -70,6 +70,8 @@ pub struct Win {
     pub visible: bool,
     /// 窗口左上角（屏幕坐标）
     pub pos: (i32, i32),
+    /// 正在播放的出现 / 关闭动画（见 anim.rs）
+    pub anim: Option<super::anim::Anim>,
 }
 
 pub struct App {
@@ -85,6 +87,10 @@ pub struct App {
     pub search: Option<super::lyricdlwin::LyricSearch>,
     /// 「设置用户配置数据及歌词图片缓存保存位置」窗口
     pub cfgdir: Option<super::cfgdirwin::CfgDirWin>,
+    /// 主界面的关闭动画播完以后要做的事（最小化、退出……，见 anim.rs）
+    pub after: Option<super::anim::After>,
+    /// 主界面不在屏幕上：最小化了 / 缩到托盘了
+    pub away: Option<super::anim::Away>,
     pub settings_win: Option<super::settingswin::SettingsWin>,
     pub desk: Option<super::desklyric::DeskLyric>,
     pub taskbar: Option<super::taskbar::TaskbarLyric>,
@@ -209,16 +215,27 @@ impl App {
             self.paint_cfgdir();
         }
         for i in 0..self.wins.len() {
-            let (pane, ref w) = self.wins[i];
-            if !w.dirty || !w.visible {
+            let (p, ref w) = self.wins[i];
+            // 关掉的面板在播关闭动画时也要画
+            let closing = w.anim.is_some_and(|a| a.dir == super::anim::Dir::Out);
+            if !w.dirty || !(w.visible || closing) || !self.paints(p) {
                 continue;
             }
+            self.paint_pane(i);
+        }
+    }
+
+    /// 画第 i 个窗口并提交（出现动画还没完时画动画的这一帧，并保持待重画）
+    pub fn paint_pane(&mut self, i: usize) {
+        {
+            let pane = self.wins[i].0;
             let (cw, ch) = self.sizes.size(pane);
             let mut canvas = std::mem::replace(&mut self.wins[i].1.canvas, Canvas::new(0, 0));
             if canvas.w != cw || canvas.h != ch {
                 canvas = Canvas::new(cw, ch);
             }
             self.paint(pane, &mut canvas);
+            let animating = self.apply_anim(i, &mut canvas);
             if super::resize::limits(pane).is_some() {
                 super::resize::grip_margins(&mut canvas, pane);
             }
@@ -230,11 +247,15 @@ impl App {
                 if canvas.save_png(&tmp).is_ok() {
                     let _ = std::fs::rename(&tmp, dir.join(format!("{pane:?}.png")));
                 }
+                // AIRPLAY3_DUMP_SEQ：动画的每一帧另存一份（文件名里是启动后的毫秒数），和原版逐帧对比
+                if self.wins[i].1.anim.is_some() || animating {
+                    canvas.dump_seq(&format!("{pane:?}"), self.started.elapsed().as_millis());
+                }
             }
             let w = &mut self.wins[i].1;
             w.surface.present(w.hwnd, &canvas, w.pos.0, w.pos.1);
             w.canvas = canvas;
-            w.dirty = false;
+            w.dirty = animating;
         }
     }
 
@@ -260,15 +281,6 @@ impl App {
             unsafe {
                 let _ = SetWindowPos(w.hwnd, None, w.pos.0, w.pos.1, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
-        }
-    }
-
-    pub fn set_visible(&mut self, p: Pane, on: bool) {
-        let w = self.win(p);
-        w.visible = on;
-        w.dirty = on;
-        unsafe {
-            let _ = ShowWindow(w.hwnd, if on { SW_SHOWNOACTIVATE } else { SW_HIDE });
         }
     }
 }
@@ -317,12 +329,12 @@ pub fn run(player: Player, now: SharedNow, cmds: Sender<Command>, start_hidden: 
         let (dx, dy) = saved.map(|o| (o[0], o[1])).filter(|&(dx, dy)| on_screen(R::new(x + dx, y + dy, w, h))).unwrap_or(def);
         let (px, py) = (x + dx, y + dy);
         let hwnd = if p == Pane::Bar { bar_hwnd } else { window::create("AirPlay3", px, py, w, h, false, Some(bar_hwnd)) };
-        wins.push((p, Win { hwnd, canvas: Canvas::new(w, h), surface: Surface::new(w, h), dirty: true, visible: true, pos: (px, py) }));
+        wins.push((p, Win { hwnd, canvas: Canvas::new(w, h), surface: Surface::new(w, h), dirty: true, visible: true, pos: (px, py), anim: None }));
     }
     bar_slot.store(bar_hwnd.0 as isize, std::sync::atomic::Ordering::Release);
     let ui = super::state::UiState::new(&player);
     let (async_tx, async_rx) = crossbeam_channel::unbounded();
-    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, cfgdir: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, smtc: None, async_tx, async_rx };
+    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, cfgdir: None, after: None, away: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, smtc: None, async_tx, async_rx };
     APP.with(|a| *a.borrow_mut() = Some(app));
     super::wnd::after_create(start_hidden);
     unsafe {

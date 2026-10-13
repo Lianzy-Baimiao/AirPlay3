@@ -258,6 +258,7 @@ impl App {
         self.tick_desk();
         self.tick_taskbar();
         self.tick_minibar();
+        self.tick_anim();
         self.tick_smtc();
         self.ui.last_frame = now;
     }

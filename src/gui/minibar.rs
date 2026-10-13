@@ -4,6 +4,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use super::anim::{self, After, Anim, Dir};
 use super::app::App;
 use super::canvas::{Canvas, R, Rgba};
 use super::desklyric::LineState;
@@ -14,7 +15,7 @@ use crate::skin::icons;
 pub const W: i32 = 304;
 pub const H: i32 = 24;
 /// 歌词条默认在控制条下方 65 像素（原版位置）
-const GAP: i32 = 65;
+pub const GAP: i32 = 65;
 const FONT: Font = Font::px(12.0, false);
 const BTN_PREV: R = R::new(123, 6, 16, 12);
 const BTN_PLAY: R = R::new(144, 6, 16, 12);
@@ -29,6 +30,14 @@ pub struct Minibar {
     pub drag: Option<MiniDrag>,
     pub last: LineState,
     ticks: u32,
+    /// 正在淡入 / 淡出（打开迷你条、缩到托盘、退出）
+    pub fade: Option<Anim>,
+}
+
+impl Minibar {
+    pub fn new(top: Popup, bottom: Popup, fade: Option<Anim>) -> Minibar {
+        Minibar { top, bottom, hover: [false; 2], drag: None, last: LineState::default(), ticks: 0, fade }
+    }
 }
 
 /// 所有任务栏（主屏 Shell_TrayWnd，其它显示器 Shell_SecondaryTrayWnd）的位置
@@ -74,42 +83,38 @@ fn strip(c: &mut Canvas, hover: bool) {
 const HALO: Rgba = Rgba(16, 16, 16, 190);
 
 impl App {
+    /// 主界面 ⇄ 迷你条：主界面先播关闭动画再换成迷你条（淡入）；回来时迷你条直接消失，面板从中心长出来（原版）
     pub fn toggle_minibar(&mut self) {
+        if self.quitting || self.after == Some(After::Minibar) {
+            return;
+        }
         if let Some(mut m) = self.minibar.take() {
             m.top.close();
             m.bottom.close();
-            self.restore();
+            self.show_main(false);
             return;
         }
-        let (x, y) = self.bar_pos();
-        let top = Popup::new(x, y, W, H, None, "AirPlay3 迷你条");
-        let bottom = Popup::new(x, y + GAP, W, H, Some(top.hwnd), "AirPlay3 迷你歌词");
-        unsafe {
-            for (_, w) in &self.wins {
-                let _ = ShowWindow(w.hwnd, SW_HIDE);
-            }
-            let on_top = self.player.core.lock().settings.general.always_on_top;
-            for h in [top.hwnd, bottom.hwnd] {
-                let _ = SetWindowPos(h, Some(if on_top { HWND_TOPMOST } else { HWND_NOTOPMOST }), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            }
+        if self.away.is_some() || self.after.is_some() {
+            return;
         }
-        self.minibar = Some(Minibar { top, bottom, hover: [false; 2], drag: None, last: LineState::default(), ticks: 0 });
-        self.paint_minibar();
-        if let Some(m) = &self.minibar {
-            m.top.show(false);
-            m.bottom.show(false);
-        }
+        self.close_all(After::Minibar);
     }
 
     pub fn tick_minibar(&mut self) {
-        if self.minibar.is_none() {
+        // 缩到托盘时不画
+        if self.minibar.is_none() || self.away.is_some() {
             return;
         }
         let st = self.line_state();
         let m = self.minibar.as_mut().unwrap();
         m.ticks = m.ticks.wrapping_add(1);
         let check_z = m.ticks % 15 == 0;
-        if st != m.last {
+        // 淡入淡出期间每一帧都画；淡入完了去掉（淡出的留着，等 tick_anim 隐藏）
+        let fading = m.fade.is_some_and(|a| a.dir == Dir::In || !a.out_done(true));
+        if m.fade.is_some_and(|a| a.dir == Dir::In && a.t() >= anim::BAR_IN) {
+            m.fade = None;
+        }
+        if st != m.last || fading {
             m.last = st;
             self.paint_minibar();
         }
@@ -155,6 +160,7 @@ impl App {
         let (playing, vol, muted) = (self.ui.snap.playing, self.ui.snap.volume, self.ui.snap.muted);
         let title = self.now.lock().title.clone();
         let Some(m) = self.minibar.as_mut() else { return };
+        let alpha = m.fade.map_or(1.0, |a| anim::fade_alpha(&a, a.t().max(0.0)));
         let c = &mut m.top.canvas;
         strip(c, m.hover[0]);
         let v = if muted { 0.0 } else { vol };
@@ -173,6 +179,11 @@ impl App {
         c.icon(icons::NEXT, BTN_NEXT.x, BTN_NEXT.y - 2, Rgba::gray(230).alpha(a));
         c.icon(icons::S_RESTORE, BTN_RESTORE.x, BTN_RESTORE.y, Rgba::gray(220));
         c.icon(icons::S_CLOSE, BTN_CLOSE.x, BTN_CLOSE.y, Rgba::gray(220));
+        anim::fade(c, alpha);
+        #[cfg(debug_assertions)]
+        if m.fade.is_some() {
+            c.dump_seq("MiniTop", self.started.elapsed().as_millis());
+        }
         m.top.present();
         // 下方：迷你歌词，长句随进度向左滚动
         let c = &mut m.bottom.canvas;
@@ -183,6 +194,7 @@ impl App {
         c.push_clip(inner);
         c.glow_text(&m.last.text, FONT, x, 4, Rgba::gray(235), HALO, 2);
         c.pop_clip();
+        anim::fade(c, alpha);
         m.bottom.present();
     }
 
