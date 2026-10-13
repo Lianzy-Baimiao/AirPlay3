@@ -140,8 +140,9 @@ pub struct KeyCombo {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct General {
-    /// 窗体始终置顶
-    pub topmost: bool,
+    /// 窗体始终置顶（主界面和迷你条；默认开着，托盘菜单、播放条的图钉、配置里都能关）。
+    /// 以前叫 topmost、默认关，而迷你条总是强制置顶；改名后旧配置里的值不再读取，都从「开」开始
+    pub always_on_top: bool,
     /// 最小化到托盘 (不显示任务栏窗体)
     pub minimize_to_tray: bool,
     /// 点关闭按钮时缩到托盘而不是退出
@@ -156,7 +157,7 @@ pub struct General {
 
 impl Default for General {
     fn default() -> Self {
-        Self { topmost: false, minimize_to_tray: false, close_to_tray: false, autostart: false, play_after_drop: true, global_wheel: true }
+        Self { always_on_top: true, minimize_to_tray: false, close_to_tray: false, autostart: false, play_after_drop: true, global_wheel: true }
     }
 }
 

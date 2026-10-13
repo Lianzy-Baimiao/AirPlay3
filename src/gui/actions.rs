@@ -40,9 +40,9 @@ impl App {
         let s = &self.ui.snap;
         let order = PlayMode::ALL.iter().map(|m| check(m.label(), None, s.mode == *m, Act::SetMode(*m))).collect();
         // 先取出设置再拼菜单：同一个表达式里两次 core.lock() 时第一个锁要到表达式结束才释放，第二次加锁会自己等自己（死锁）
-        let (desk, desk_locked, taskbar) = {
+        let (desk, desk_locked, taskbar, on_top) = {
             let g = self.player.core.lock();
-            (g.settings.desk_lyric.visible, g.settings.desk_lyric.locked, g.settings.taskbar_lyric.visible)
+            (g.settings.desk_lyric.visible, g.settings.desk_lyric.locked, g.settings.taskbar_lyric.visible, g.settings.general.always_on_top)
         };
         let mut v = vec![
             check("歌词图片", Some(icons::LYRIC_PIC), s.show[0], Act::TogglePane(0)),
@@ -62,6 +62,7 @@ impl App {
             Item::Sub { label: "列表播放顺序".into(), items: order },
             Item::Sep,
             item("网络电台…", Act::Radio),
+            check("始终置顶", None, on_top, Act::ToggleTopmost),
             item("配置", Act::OpenConfig),
             item("恢复默认位置", Act::ResetPosition),
             Item::Sep,
@@ -161,7 +162,7 @@ impl App {
             Act::Minimize => self.minimize(),
             Act::ToggleTopmost => {
                 let mut g = p.core.lock();
-                g.settings.general.topmost = !g.settings.general.topmost;
+                g.settings.general.always_on_top = !g.settings.general.always_on_top;
                 g.touch_settings();
                 drop(g);
                 self.apply_topmost();
@@ -529,10 +530,14 @@ impl App {
     }
 
     pub fn apply_topmost(&mut self) {
-        let top = self.player.core.lock().settings.general.topmost;
+        let top = self.player.core.lock().settings.general.always_on_top;
+        let mut hwnds: Vec<HWND> = self.wins.iter().map(|(_, w)| w.hwnd).collect();
+        if let Some(m) = &self.minibar {
+            hwnds.extend([m.top.hwnd, m.bottom.hwnd]);
+        }
         unsafe {
-            for (_, w) in &self.wins {
-                let _ = SetWindowPos(w.hwnd, Some(if top { HWND_TOPMOST } else { HWND_NOTOPMOST }), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            for h in hwnds {
+                let _ = SetWindowPos(h, Some(if top { HWND_TOPMOST } else { HWND_NOTOPMOST }), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             }
         }
     }

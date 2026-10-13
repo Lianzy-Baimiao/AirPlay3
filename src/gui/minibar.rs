@@ -88,8 +88,9 @@ impl App {
             for (_, w) in &self.wins {
                 let _ = ShowWindow(w.hwnd, SW_HIDE);
             }
+            let on_top = self.player.core.lock().settings.general.always_on_top;
             for h in [top.hwnd, bottom.hwnd] {
-                let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                let _ = SetWindowPos(h, Some(if on_top { HWND_TOPMOST } else { HWND_NOTOPMOST }), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             }
         }
         self.minibar = Some(Minibar { top, bottom, hover: [false; 2], drag: None, last: LineState::default(), ticks: 0 });
@@ -118,8 +119,9 @@ impl App {
     }
 
     /// 迷你条放在任务栏上时，点任务栏（开始菜单、切换窗口）会让任务栏压到迷你条上面，迷你条就点不到了：
-    /// 盖着任务栏时每半秒把迷你条重新放到最上层
+    /// 盖着任务栏时每半秒把迷你条重新放到最上层（关了「始终置顶」也一样，离开任务栏后再取消置顶）
     fn keep_minibar_on_top(&mut self) {
+        let on_top = self.player.core.lock().settings.general.always_on_top;
         let Some(m) = self.minibar.as_ref() else { return };
         if m.drag.is_some() {
             return;
@@ -128,9 +130,12 @@ impl App {
         let bars = taskbars();
         for (h, (x, y)) in strips {
             let r = R::new(x, y, W, H);
-            if bars.iter().any(|b| b.inter(&r).w > 0 && b.inter(&r).h > 0) {
+            let over_bar = bars.iter().any(|b| b.inter(&r).w > 0 && b.inter(&r).h > 0);
+            let now_top = unsafe { GetWindowLongW(h, GWL_EXSTYLE) } & WS_EX_TOPMOST.0 as i32 != 0;
+            let want = on_top || over_bar;
+            if over_bar || want != now_top {
                 unsafe {
-                    let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    let _ = SetWindowPos(h, Some(if want { HWND_TOPMOST } else { HWND_NOTOPMOST }), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
                 }
             }
         }

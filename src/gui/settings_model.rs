@@ -119,7 +119,7 @@ impl Swatch {
 pub fn get(s: &Settings, k: Key) -> bool {
     let m = &s.hotkeys.media;
     match k {
-        Key::Topmost => s.general.topmost,
+        Key::Topmost => s.general.always_on_top,
         Key::MinToTray => s.general.minimize_to_tray,
         Key::CloseToTray => s.general.close_to_tray,
         Key::Autostart => s.general.autostart,
@@ -160,7 +160,7 @@ pub fn get(s: &Settings, k: Key) -> bool {
 pub fn set(s: &mut Settings, k: Key, v: bool) {
     let m = &mut s.hotkeys.media;
     match k {
-        Key::Topmost => s.general.topmost = v,
+        Key::Topmost => s.general.always_on_top = v,
         Key::MinToTray => s.general.minimize_to_tray = v,
         Key::CloseToTray => s.general.close_to_tray = v,
         Key::Autostart => s.general.autostart = v,

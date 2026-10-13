@@ -156,7 +156,7 @@ impl App {
             current,
             radio: g.radio.as_ref().map(|r| r.station.url.clone()),
             lib_rev: g.lib.rev,
-            topmost: s.general.topmost,
+            topmost: s.general.always_on_top,
             show: [s.window.show_cover, s.window.show_eq, s.window.show_list],
             eq_enabled: s.eq.enabled,
             eq_preamp: s.eq.preamp_db,
