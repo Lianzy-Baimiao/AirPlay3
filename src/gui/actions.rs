@@ -72,6 +72,12 @@ impl App {
 
     fn lyric_menu(&self) -> Vec<Item> {
         let auto = self.player.core.lock().settings.lyrics.auto_download;
+        // 「恢复」后面写上现在调了多少（正数 = 提前）
+        let off = self.now.lock().lyric_offset_ms;
+        let reset = match off {
+            0 => "恢复歌词时间".to_string(),
+            v => format!("恢复歌词时间（现在{} {} 秒）", if v > 0 { "提前" } else { "延后" }, v.abs() as f64 / 1000.0),
+        };
         vec![
             item("下载歌词…", Act::LyricSearch),
             item("关联本地歌词…", Act::LyricFile),
@@ -79,6 +85,7 @@ impl App {
             Item::Sep,
             item("歌词提前 0.5 秒", Act::LyricOffset(500)),
             item("歌词延后 0.5 秒", Act::LyricOffset(-500)),
+            item(&reset, Act::LyricOffset(0)),
             Item::Sep,
             item("下载专辑图片", Act::CoverDownload),
             item("关联本地图片…", Act::CoverFile),
