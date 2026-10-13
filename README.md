@@ -11,13 +11,19 @@
 
 AirPlay3 是 2012 年前后的一款国产绿色音乐播放器（airplayme.com）。它体积小巧、无需安装，深色极简的界面由几块磁吸在一起的半透明窗口组成：播放条、歌词图片、均衡器、音乐列表。它的标语是 **「乐声飞扬 聆听彼此」 / 「link between souls」**。
 
-原作者早已停止更新，它依赖的服务器也已全部关闭，但它的界面至今仍让人怀念。本项目没有原版源码，全部功能是对原版程序逆向分析后用 Rust 重新实现的；界面以原版为准逐像素对照复刻。谨以此项目向 AirPlay3 的原作者致敬。
+原作者早已停止更新，它依赖的服务器也已全部关闭，但它的界面至今仍让人怀念。本项目没有原版源码，全部功能是对原版程序逆向分析后用 Rust 重新实现的；界面以原版为准逐像素对照复刻（布局、尺寸、颜色、半透明效果），图标、像素数字、标志等全部是照着原版的样子自己画的，不使用原版的图片。谨以此项目向 AirPlay3 的原作者致敬。
 
 ## 截图
+
+播放条、标题条是半透明的玻璃（与原版相同），能看到后面的桌面：
 
 | 播放中：大封面 + 歌曲信息 | 约 8 秒后：小封面 + 滚动歌词 |
 | :---: | :---: |
 | ![播放中](docs/images/screenshot-main.png) | ![歌词](docs/images/screenshot-lyrics.png) |
+
+「配置 → 颜色透明」：整体颜色、焦点颜色、边框透明、透明雾化
+
+![颜色透明](docs/images/screenshot-colors.png)
 
 ## 已实现
 
@@ -86,6 +92,6 @@ cargo build --release
 
 ## 许可
 
-代码以 [MIT](LICENSE) 协议开源。
+代码以 [MIT](LICENSE) 协议开源；界面上的图标、像素数字、标志都是在程序里自己画的（`src/skin/`），同样是 MIT。
 
 APE、WavPack、Musepack 解码器分别改写自 Monkey's Audio SDK、WavPack 参考库、libmpcdec（都是 BSD 许可）。TAK 解码器改写自 FFmpeg，所在目录 `src/audio/codec/tak/` 以 [LGPL 2.1](LICENSE-LGPL-2.1.txt) 或更新版本发布（其余代码仍是 MIT）。各项声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)，发布包中也附带这些文件。

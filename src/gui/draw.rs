@@ -39,6 +39,51 @@ impl Canvas {
         self.sprite_part(sp, 0, 0, sp.w as i32, sp.h as i32, x, y, tint);
     }
 
+    /// 倒影：精灵图第 `floor` 行以上的部分上下翻转画在 (x, y + floor) 以下，`len` 行内从 `alpha` 渐隐到 0
+    #[allow(clippy::too_many_arguments)]
+    pub fn sprite_reflect(&mut self, sp: &Sprite, x: i32, y: i32, floor: i32, len: i32, alpha: f32, tint: Rgba) {
+        for dy in 0..len.min(floor) {
+            let a = alpha * (1.0 - dy as f32 / len as f32);
+            let v = (floor - 1 - dy) as u32;
+            for u in 0..sp.w {
+                let p = sp.at(u, v);
+                if p[3] == 0 {
+                    continue;
+                }
+                let m = |a: u8, b: u8| ((a as u16 * b as u16 + 127) / 255) as u8;
+                let (px, py) = (x + u as i32, y + floor + dy);
+                if self.clip_rect().contains(px, py) {
+                    self.blend(px, py, Rgba(m(p[0], tint.0), m(p[1], tint.1), m(p[2], tint.2), tint.3), p[3] as f32 / 255.0 * a);
+                }
+            }
+        }
+    }
+
+    /// 精灵图缩放到 dst（双线性），按 tint 着色
+    pub fn sprite_scaled(&mut self, sp: &Sprite, dst: R, tint: Rgba) {
+        if dst.w <= 0 || dst.h <= 0 {
+            return;
+        }
+        let clip = self.clip_rect().inter(&dst);
+        let (kx, ky) = (sp.w as f32 / dst.w as f32, sp.h as f32 / dst.h as f32);
+        let get = |x: i32, y: i32| sp.at(x.clamp(0, sp.w as i32 - 1) as u32, y.clamp(0, sp.h as i32 - 1) as u32);
+        for py in clip.y..clip.bottom() {
+            let fy = ((py - dst.y) as f32 + 0.5) * ky - 0.5;
+            let (y0, ty) = (fy.floor() as i32, fy - fy.floor());
+            for px in clip.x..clip.right() {
+                let fx = ((px - dst.x) as f32 + 0.5) * kx - 0.5;
+                let (x0, tx) = (fx.floor() as i32, fx - fx.floor());
+                let (a, b, c, d) = (get(x0, y0), get(x0 + 1, y0), get(x0, y0 + 1), get(x0 + 1, y0 + 1));
+                let l = |k: usize| (a[k] as f32 * (1.0 - tx) + b[k] as f32 * tx) * (1.0 - ty) + (c[k] as f32 * (1.0 - tx) + d[k] as f32 * tx) * ty;
+                let (cov, v) = (l(3) / 255.0, l(0) / 255.0);
+                if cov > 0.0 {
+                    let m = |t: u8| (t as f32 * v).round() as u8;
+                    self.blend(px, py, Rgba(m(tint.0), m(tint.1), m(tint.2), tint.3), cov);
+                }
+            }
+        }
+    }
+
     /// 画 RGBA 图片（非预乘）到 dst，双线性缩放
     pub fn image(&mut self, rgba: &[u8], iw: u32, ih: u32, dst: R, opacity: f32) {
         if iw == 0 || ih == 0 || dst.w <= 0 || dst.h <= 0 {

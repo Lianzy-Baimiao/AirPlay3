@@ -52,9 +52,13 @@ pub fn paint(c: &mut Canvas, m: &CoverModel) {
         c.text(hint, FONT, (c.w - tw) / 2, body.y + 3, theme::g(150), Hint::ClearType);
     }
     if !m.active {
-        let logo = &skin().logo;
-        let (x, y) = ((c.w - logo.w as i32) / 2, body.y + 60 + (c.h - H) / 2);
-        c.sprite(logo, x, y, theme::g(255));
+        // 标志：「airplay」字样 + 上方焦点颜色的弧线，下面一个渐隐的倒影（与原版相同）
+        let s = skin();
+        let (x, y) = ((c.w - s.logo.w as i32) / 2, body.y + 54 + (c.h - H) / 2);
+        let ink = theme::g(255);
+        c.sprite(&s.logo_arc, x, y, theme::focus());
+        c.sprite(&s.logo, x, y, ink);
+        c.sprite_reflect(&s.logo, x, y, 54, 16, 0.28, ink);
         c.pop_clip();
         return;
     }
@@ -86,7 +90,7 @@ fn draw_cover(c: &mut Canvas, cover: Option<(&[u8], u32, u32)>, r: R) {
                 c.image(row, w, 1, R::new(r.x, r.bottom() + 1 + dy, r.w, 1), a);
             }
         }
-        None => c.sprite(&skin().cover, r.x + (r.w - 128) / 2, r.y + (r.h - 128) / 2, theme::g(70)),
+        None => c.sprite_scaled(&skin().cover, r, theme::g(70)),
     }
 }
 

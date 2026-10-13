@@ -3,7 +3,7 @@
 use super::eq_labels as L;
 use super::frame;
 use crate::gui::theme;
-use crate::gui::canvas::{Canvas, R, Rgba};
+use crate::gui::canvas::{Canvas, R};
 use crate::gui::text::{Font, Hint};
 use crate::skin::icons;
 
@@ -37,23 +37,20 @@ pub fn db_at(y: i32) -> f32 {
     ((1.0 - t.clamp(0.0, 1.0)) * 24.0 - 12.0).round()
 }
 
-fn bitmap(c: &mut Canvas, x: i32, y: i32, rows: &[&str; 5], col: Rgba) {
-    for (dy, r) in rows.iter().enumerate() {
-        for (dx, ch) in r.bytes().enumerate() {
-            if ch == b'#' {
-                c.blend(x + dx as i32, y + dy as i32, col, 1.0);
-            }
-        }
-    }
-}
-
 pub fn paint(c: &mut Canvas, m: &EqModel) {
     let body = frame::panel(c, m.strip_hover);
     c.push_clip(body);
     let label = theme::g(L::LABEL_GRAY);
-    for (x, y, rows) in [L::FREQ, L::DB_TOP, L::DB_MID, L::DB_BOT] {
-        bitmap(c, x, y, &rows, label);
+    let mut dot = |x: i32, y: i32| c.blend(x, y, label, 1.0);
+    L::draw(L::PREAMP.0, L::PREAMP.1, L::FREQ_Y, &mut dot);
+    for (s, cx) in L::FREQS {
+        L::draw(s, cx - L::width(s) / 2, L::FREQ_Y, &mut dot);
     }
+    for (s, right, y) in L::DB {
+        L::draw(s, right - L::width(s), y, &mut dot);
+    }
+    // 前级放大的 0 位置的短横线
+    c.fill(R::new(40, 59, 3, 1), label);
     for (i, &sx) in SLIDER_X.iter().enumerate() {
         // 刻度：左右两列短横线
         for k in 0..=8 {

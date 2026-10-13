@@ -290,7 +290,7 @@ pub fn post_repaint(bar: isize) {
 
 /// 创建窗口并运行消息循环（阻塞直到退出）。`bar_slot` 用于让后台线程投递重绘消息。
 pub fn run(player: Player, now: SharedNow, cmds: Sender<Command>, start_hidden: bool, bar_slot: &std::sync::atomic::AtomicIsize) {
-    // 与原版一致：声明 DPI 感知，按 1:1 像素绘制（皮肤图片不缩放）
+    // 与原版一致：声明 DPI 感知，按 1:1 像素绘制（图标不缩放）
     unsafe {
         use windows::Win32::UI::HiDpi::*;
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
