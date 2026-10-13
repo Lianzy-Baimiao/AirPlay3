@@ -5,6 +5,7 @@ pub mod cover;
 pub mod eq;
 mod eq_labels;
 pub mod frame;
+pub mod lyricdl;
 pub mod pill;
 pub mod playlist;
 pub mod radio;

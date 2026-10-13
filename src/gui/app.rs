@@ -82,7 +82,7 @@ pub struct App {
     pub quitting: bool,
     pub sizes: Sizes,
     pub menu: Option<super::menu::Menu>,
-    pub search: Option<super::lyricwin::LyricSearch>,
+    pub search: Option<super::lyricdlwin::LyricSearch>,
     pub radio_win: Option<super::radiowin::RadioWin>,
     pub settings_win: Option<super::settingswin::SettingsWin>,
     pub desk: Option<super::desklyric::DeskLyric>,
@@ -172,7 +172,7 @@ impl App {
                 hwnds.extend([m.top.hwnd, m.bottom.hwnd]);
             }
             hwnds.extend(self.settings_win.as_ref().map(|s| s.win.hwnd));
-            hwnds.extend(self.search.as_ref().map(|s| s.win.hwnd));
+            // 「下载歌词」窗口不透明，四周是宽阴影：不雾化（否则阴影里是一大片模糊）
             hwnds.extend(self.radio_win.as_ref().map(|s| s.win.hwnd));
             for h in hwnds {
                 super::window::set_frost(h, t.frost);

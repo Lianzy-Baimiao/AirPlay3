@@ -6,6 +6,7 @@ pub mod app;
 pub mod canvas;
 pub mod draw;
 mod input;
+mod lyricdlwin;
 mod lyricwin;
 mod menu;
 mod minibar;

@@ -127,6 +127,7 @@ pub mod icons {
     pub const T_ADD: Cell = c(Sheet::Icon15, 0, 0);
     pub const T_SORT: Cell = c(Sheet::Icon15, 2, 0);
     pub const T_EDIT: Cell = c(Sheet::Icon15, 3, 0);
+    pub const NOTE: Cell = c(Sheet::Icon15, 0, 1);
     pub const MIC: Cell = c(Sheet::Icon15, 1, 1);
     pub const DISC: Cell = c(Sheet::Icon15, 2, 1);
     pub const HEADPHONE: Cell = c(Sheet::Icon15, 10, 1);
@@ -143,8 +144,8 @@ mod tests {
         use icons::*;
         let all = [
             BIG_PREV, BIG_PLAY, BIG_PAUSE, BIG_NEXT, PREV, PLAY, PAUSE, NEXT, LYRIC_PIC, LIST, EQ, MODE_SEQ, MODE_SHUFFLE, MODE_REPEAT, MODE_ONE,
-            S_RESTORE, S_CLOSE, W_MIN, W_CLOSE, W_PIN, W_PINNED, W_MINIBAR, TRI_RIGHT, TRI_DOWN, FIND, CHECK, CROSS, T_ADD, T_SORT, T_EDIT, MIC,
-            DISC, HEADPHONE, ROW_PLAY,
+            S_RESTORE, S_CLOSE, W_MIN, W_CLOSE, W_PIN, W_PINNED, W_MINIBAR, TRI_RIGHT, TRI_DOWN, FIND, CHECK, CROSS, T_ADD, T_SORT, T_EDIT, NOTE,
+            MIC, DISC, HEADPHONE, ROW_PLAY,
         ];
         let s = skin();
         for c in all {

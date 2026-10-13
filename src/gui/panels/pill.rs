@@ -142,14 +142,21 @@ pub fn check(c: &mut Canvas, x: i32, y: i32, col: Rgba, shadow: bool) {
     draw(c, 0, 0, col);
 }
 
-/// 不在药丸里的勾选框：13 × 13 的灰色方块（勾上时有暗色的勾），右边是文字
+/// 不在药丸里的勾选框：13 × 12 的灰色方块（勾上时有暗色的勾），右边是文字
 pub fn plain_check(c: &mut Canvas, r: R, label: &str, on: bool, hot: bool) {
-    let b = R::new(r.x, r.y + (r.h - 13) / 2, 13, 13);
-    c.fill(b, Rgba::gray(if hot { 0x96 } else { 0x81 }));
+    plain_check_ex(c, r, label, on, hot, true);
+}
+
+/// 同上；不能改时方块和文字都很暗
+pub fn plain_check_ex(c: &mut Canvas, r: R, label: &str, on: bool, hot: bool, enabled: bool) {
+    let b = R::new(r.x, r.y + (r.h - 12) / 2, 13, 12);
+    let fill = if !enabled { 0x2D } else if hot { 0x96 } else { 0x81 };
+    c.fill(b, Rgba::gray(fill));
     if on {
-        check(c, b.x + 1, b.y + 1, Rgba::gray(0x21), false);
+        check(c, b.x + 1, b.y, Rgba::gray(0x21), false);
     }
-    c.text(label, FONT, b.x + 20, r.y + (r.h - 16) / 2 + 1, Rgba::gray(0xE0), Hint::ClearType);
+    let ink = if enabled { 0xE0 } else { 0x3E };
+    c.text(label, FONT, b.x + 19, r.y + (r.h - 16) / 2 + 1, Rgba::gray(ink), Hint::ClearType);
 }
 
 /// 细边框的框（下拉框、输入框）

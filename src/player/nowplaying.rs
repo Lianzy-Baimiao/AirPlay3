@@ -313,6 +313,44 @@ impl Player {
         }
     }
 
+    /// 「下载歌词」窗口：按所选的搜索结果下载专辑图片（结果自带图片地址时直接用，否则按它的歌名、艺人找）、
+    /// 艺人图片，保存并关联到这首歌。在调用线程上联网，返回各项出的错
+    pub fn download_pics_for(&self, id: TrackId, c: &crate::lyrics::online::Candidate, album: bool, artist: bool, now: &SharedNow) -> Vec<String> {
+        let mut errors = Vec::new();
+        let (t, net, dir, artist_dir) = {
+            let g = self.core.lock();
+            let Some(t) = g.lib.track(id).cloned() else { return errors };
+            (t, g.settings.network.clone(), g.dirs.cover_dir(), g.dirs.artist_dir())
+        };
+        if album {
+            let bytes = if c.cover.is_empty() {
+                crate::media::artwork::find(&net, &c.title, &c.artist, c.duration, true)
+            } else {
+                crate::lyrics::lrclib::agent(&net).and_then(|a| crate::media::artwork::download(&a, &c.cover)).map(Some)
+            };
+            match bytes {
+                Ok(Some(b)) => match crate::media::artwork::save(&b, &dir, &c.artist, &c.album, &c.title) {
+                    Ok(path) => self.set_cover_link(id, Link::File(path), now),
+                    Err(e) => errors.push(format!("保存专辑图片失败：{e}")),
+                },
+                Ok(None) => errors.push("没有找到专辑图片".into()),
+                Err(e) => errors.push(format!("下载专辑图片失败：{e}")),
+            }
+        }
+        if artist {
+            let mut ta = t.clone();
+            if !c.artist.trim().is_empty() {
+                ta.artist = c.artist.clone();
+            }
+            match fetch_artist_pic(self, now, &ta, &net, &artist_dir, true) {
+                Ok(true) => {}
+                Ok(false) => errors.push("没有找到艺人图片".into()),
+                Err(e) => errors.push(format!("下载艺人图片失败：{e}")),
+            }
+        }
+        errors
+    }
+
     pub fn set_lyric_link(&self, id: TrackId, link: Link, now: &SharedNow) {
         if let Some(t) = self.core.lock().lib.track_mut(id) {
             (t.lyric_path, t.lyric_unlinked) = match link {

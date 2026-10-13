@@ -271,18 +271,20 @@ fn title_rank(c: &Candidate, title: &str) -> u8 {
 }
 
 /// 搜索窗口里的顺序：标题一致（含去掉 (Live) 等说明后一致）的在前，再看艺人是否对得上，
-/// 然后按时长接近程度（3 秒 / 10 秒 / 更远分档）、来源顺序。
+/// 然后按时长接近程度（3 秒 / 10 秒 / 更远分档）、专辑是否对得上、来源顺序。
 /// LrcAPI 是模糊搜索，会混进标题相近的别的歌；只按时长排会把它们排到真正的结果前面。
-pub fn sort_for_list(v: &mut [Candidate], title: &str, artist: &str, duration: f64) {
-    let a = normalize_key(artist);
+pub fn sort_for_list(v: &mut [Candidate], title: &str, artist: &str, album: &str, duration: f64) {
+    let (a, al) = (normalize_key(artist), normalize_key(album));
     let key = |c: &Candidate| {
         let ca = normalize_key(&c.artist);
         let artist_ok = a.is_empty() || (!ca.is_empty() && (ca.contains(&a) || a.contains(&ca)));
+        let cal = normalize_key(&c.album);
+        let album_ok = al.is_empty() || (!cal.is_empty() && (cal.contains(&al) || al.contains(&cal)));
         let d = if duration > 0.0 && c.duration > 0.0 { (c.duration - duration).abs() } else { 999.0 };
         let band = if d <= 3.0 { 0 } else if d <= 10.0 { 1 } else { 2 };
         // 同名歌里，艺人对得上的（哪怕是 Live 版）排在别人翻唱的前面
         let tr = title_rank(c, title);
-        (tr == 2, !artist_ok, tr, band, c.provider.rank(), (d * 10.0) as i64)
+        (tr == 2, !artist_ok, tr, band, !album_ok, c.provider.rank(), (d * 10.0) as i64)
     };
     v.sort_by_key(key);
 }
@@ -378,7 +380,7 @@ mod tests {
         assert!(!plausible(&c(Provider::LrcApi, "怪咖", 30.0), "怪咖", 250.0));
         assert!(plausible(&c(Provider::LrcApi, "怪咖 (Live)", 0.0), "怪咖", 0.0));
         let mut v = vec![c(Provider::Lrclib, "怪咖", 250.0), c(Provider::LrcApi, "别的歌", 250.0), c(Provider::LrcApi, "怪咖", 251.0), c(Provider::LrcApi, "怪咖", 300.0)];
-        sort_for_list(&mut v, "怪咖", "a", 250.0);
+        sort_for_list(&mut v, "怪咖", "a", "", 250.0);
         let order: Vec<_> = v.iter().map(|x| (x.provider, x.duration as i64)).collect();
         assert_eq!(order, vec![(Provider::LrcApi, 251), (Provider::Lrclib, 250), (Provider::LrcApi, 300), (Provider::LrcApi, 250)]);
         // LrcAPI 模糊搜索混进来的别的歌（时长更接近）、别人翻唱的同名歌，都排在本人的 Live 版后面
@@ -388,7 +390,7 @@ mod tests {
             a(Provider::LrcApi, "亲爱的你的棉裤真的不在我家", "翻唱", 200.0),
             a(Provider::LrcApi, "亲爱的你的棉裤真的不在我家 (Live 深圳, 2018)", "齐一", 319.0),
         ];
-        sort_for_list(&mut v, "亲爱的你的棉裤真的不在我家", "齐一", 328.0);
+        sort_for_list(&mut v, "亲爱的你的棉裤真的不在我家", "齐一", "", 328.0);
         let order: Vec<_> = v.iter().map(|x| x.artist.as_str()).collect();
         assert_eq!(order, vec!["齐一", "翻唱", "王羿"]);
         assert_eq!(Provider::Auto.targets(), Provider::ORDER.to_vec());

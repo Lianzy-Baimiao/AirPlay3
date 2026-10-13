@@ -7,6 +7,10 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::app::{APP, App, Pane, TIMER_ANIM, WM_APP_ASYNC, WM_APP_REPAINT, WM_APP_TRAY};
 
+/// 调试构建的自测：等有歌曲后打开「下载歌词」窗口
+#[cfg(debug_assertions)]
+const TIMER_TEST_SEARCH: usize = 7;
+
 const WM_MOUSELEAVE: u32 = 0x02A3;
 
 pub fn lo(l: LPARAM) -> i32 {
@@ -71,7 +75,9 @@ pub fn after_create(start_hidden: bool) {
             Ok("settings") => app.open_settings(),
             Ok(s) if s.starts_with("settings:") => app.act(super::menu::Act::SettingsTab(s[9..].parse().unwrap_or(0))),
             Ok("minibar") => app.toggle_minibar(),
-            Ok("search") => app.open_lyric_search(),
+            Ok("search") => unsafe {
+                SetTimer(Some(app.bar_hwnd()), TIMER_TEST_SEARCH, 200, None);
+            },
             Ok("radio") => app.open_radio(),
             _ => {}
         }
@@ -115,6 +121,16 @@ impl App {
         let pane = self.pane_of(hwnd)?;
         match msg {
             WM_TIMER if wp.0 == TIMER_ANIM => self.tick(),
+            // 仅调试构建：等开始播放后再打开「下载歌词」窗口（AIRPLAY3_TEST_OPEN=search）
+            #[cfg(debug_assertions)]
+            WM_TIMER if wp.0 == TIMER_TEST_SEARCH => {
+                if self.ui.snap.current.is_some() {
+                    unsafe {
+                        let _ = KillTimer(Some(hwnd), TIMER_TEST_SEARCH);
+                    }
+                    self.open_lyric_search();
+                }
+            }
             WM_APP_REPAINT => self.tick(),
             WM_APP_ASYNC => self.drain_async(),
             WM_APP_TRAY => self.on_tray(lp.0 as u32),
