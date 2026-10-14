@@ -56,6 +56,16 @@ pub struct ListUi {
     pub radio_paste_hot: bool,
     /// 底部临时显示的提示（粘贴的结果），到时间后换回计数
     pub note: Option<(String, Instant)>,
+    /// 左边一栏的滚动量（电台清单多时）；电台页签左边一栏的宽度（按最长的清单名，画的时候更新）
+    pub tab_scroll: i32,
+    pub radio_tab_w: i32,
+    /// 下次画的时候把选中的清单滚到看得见（粘贴、删除清单后）
+    pub reveal_tab: bool,
+    /// 鼠标在搜索框上；光标闪烁从什么时候算起（获得输入、打字时重新算，让光标马上亮）
+    pub search_hover: bool,
+    pub caret_t0: Option<Instant>,
+    /// 上次画的时候光标是亮的
+    pub caret_drawn: bool,
 }
 
 impl ListUi {
@@ -252,6 +262,10 @@ impl App {
             self.dirty(Pane::Eq);
         }
         if strips[3] {
+            self.dirty(Pane::List);
+        }
+        // 搜索框的光标闪烁：亮 / 灭变了才重画
+        if self.ui.list.search_focus && self.caret_on() != self.ui.list.caret_drawn {
             self.dirty(Pane::List);
         }
         self.sync_radio();

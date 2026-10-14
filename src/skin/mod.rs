@@ -123,6 +123,8 @@ pub mod icons {
     pub const FIND: Cell = c(Sheet::Gui15, 1, 2);
     pub const CHECK: Cell = c(Sheet::Gui15, 2, 2);
     pub const CROSS: Cell = c(Sheet::Gui15, 1, 3);
+    /// 音乐列表搜索框里有字时的「清除」
+    pub const CLEAR: Cell = c(Sheet::Gui15, 2, 3);
     // 15×15：列表工具栏与分栏图标
     pub const T_ADD: Cell = c(Sheet::Icon15, 0, 0);
     pub const T_SORT: Cell = c(Sheet::Icon15, 2, 0);
@@ -144,7 +146,7 @@ mod tests {
         use icons::*;
         let all = [
             BIG_PREV, BIG_PLAY, BIG_PAUSE, BIG_NEXT, PREV, PLAY, PAUSE, NEXT, LYRIC_PIC, LIST, EQ, MODE_SEQ, MODE_SHUFFLE, MODE_REPEAT, MODE_ONE,
-            S_RESTORE, S_CLOSE, W_MIN, W_CLOSE, W_PIN, W_PINNED, W_MINIBAR, TRI_RIGHT, TRI_DOWN, FIND, CHECK, CROSS, T_ADD, T_SORT, T_EDIT, NOTE,
+            S_RESTORE, S_CLOSE, W_MIN, W_CLOSE, W_PIN, W_PINNED, W_MINIBAR, TRI_RIGHT, TRI_DOWN, FIND, CHECK, CROSS, CLEAR, T_ADD, T_SORT, T_EDIT, NOTE,
             MIC, DISC, HEADPHONE, ROW_PLAY,
         ];
         let s = skin();

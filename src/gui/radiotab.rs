@@ -22,10 +22,10 @@ impl App {
         let l = &mut self.ui.list;
         if l.radio != radio {
             l.radio = radio;
-            (l.scroll, l.hover, l.anchor, l.radio_sel) = (0, None, None, None);
+            (l.scroll, l.hover, l.anchor, l.radio_sel, l.tab_scroll, l.reveal_tab) = (0, None, None, None, 0, radio);
             l.search.clear();
-            l.search_focus = false;
             l.ids_key = None;
+            self.set_search_focus(false);
         }
         // 列表面板关着时打开它
         if radio && !self.ui.snap.show[2] {
@@ -69,7 +69,7 @@ impl App {
         }
         let found = crate::radio::parse_list(&text);
         if found.is_empty() {
-            return self.radio_note("剪贴板里没有电台清单（M3U、PLS，或每行「名字,地址」）");
+            return self.radio_note("剪贴板里没有电台清单");
         }
         let n = found.len();
         let (added, first) = {
@@ -81,7 +81,7 @@ impl App {
         self.player.save(false);
         if let Some(i) = first {
             let l = &mut self.ui.list;
-            (l.radio_list, l.scroll, l.radio_sel) = (i, 0, None);
+            (l.radio_list, l.scroll, l.radio_sel, l.reveal_tab) = (i, 0, None, true);
             l.search.clear();
         }
         self.show_radio_tab(true);
@@ -132,7 +132,7 @@ impl App {
         };
         self.player.save(false);
         let l = &mut self.ui.list;
-        (l.radio_list, l.scroll, l.radio_sel) = (li.saturating_sub(1), 0, None);
+        (l.radio_list, l.scroll, l.radio_sel, l.reveal_tab) = (li.saturating_sub(1), 0, None, true);
         if let Some(name) = name {
             self.radio_note(format!("已删除清单「{name}」"));
         }
@@ -166,13 +166,12 @@ impl App {
             self.radio_paste();
             return true;
         }
-        let lay = playlist::Layout::of(self.list_size());
+        let lay = self.list_layout();
         if lay.tabs.contains(x, y) {
             let n = self.player.core.lock().settings.radio.lists.len();
-            let i = ((y - lay.tabs.y - 1) / 26).max(0) as usize;
-            if i < n && i != self.ui.list.radio_list {
+            if let Some(i) = lay.tab_at(y, self.ui.list.tab_scroll, n).filter(|&i| i != self.ui.list.radio_list) {
                 let l = &mut self.ui.list;
-                (l.radio_list, l.scroll, l.radio_sel, l.hover) = (i, 0, None, None);
+                (l.radio_list, l.scroll, l.radio_sel, l.hover, l.reveal_tab) = (i, 0, None, None, true);
                 self.dirty(Pane::List);
             }
             return true;
@@ -197,9 +196,21 @@ impl App {
     /// 画电台页签
     pub fn paint_radio_list(&mut self, c: &mut crate::gui::canvas::Canvas) {
         self.refresh_radio_rows();
+        // 左边一栏按最长的清单名字加宽；清单多时可以滚动，选中的清单（刚粘贴的、删除后选中的）滚到看得见
+        let names: Vec<String> = self.player.core.lock().settings.radio.lists.iter().map(|x| x.name.clone()).collect();
+        let tab_w = playlist::tab_width(names.iter().map(|s| s.as_str()), self.sizes.list.0);
+        let lay = playlist::Layout::with_tabs(self.sizes.list, tab_w);
+        let caret = self.caret_on();
+        let l = &mut self.ui.list;
+        l.radio_tab_w = tab_w;
+        if std::mem::take(&mut l.reveal_tab) {
+            l.tab_scroll = lay.reveal_tab(l.radio_list, l.tab_scroll, names.len());
+        }
+        l.tab_scroll = l.tab_scroll.clamp(0, lay.max_tab_scroll(names.len()));
+        l.caret_drawn = caret;
         let l = &self.ui.list;
         let first = (l.scroll / playlist::ROW_H).max(0) as usize;
-        let n_vis = (playlist::Layout::of(self.sizes.list).rows.h / playlist::ROW_H + 2) as usize;
+        let n_vis = (lay.rows.h / playlist::ROW_H + 2) as usize;
         let g = self.player.core.lock();
         let playing = g.radio.as_ref().map(|r| r.station.url.clone());
         let lists = &g.settings.radio.lists;
@@ -234,8 +245,13 @@ impl App {
             strip_tabs: Some(true),
             paste_hot: l.radio_paste_hot,
             radio_empty: empty,
+            tab_w,
+            tab_scroll: l.tab_scroll,
+            search_hover: l.search_hover,
+            caret_on: caret,
         };
         playlist::paint(c, &m);
+        self.place_caret();
     }
 
     /// 每帧：听电台时把电台名、当前节目、连接状态写进「正在播放」；换台时加载台标；底部提示到时间后去掉

@@ -47,7 +47,7 @@ impl App {
                 }
             }
             Pane::List => {
-                let lay = playlist::Layout::of(self.sizes.list);
+                let lay = self.list_layout();
                 let (ty, th) = lay.thumb(self.ui.list.rows_len(), self.ui.list.scroll);
                 let thumb = lay.scroll.contains(x, y) && y >= ty && y < ty + th;
                 if thumb != self.ui.list.thumb_hot {
@@ -59,10 +59,12 @@ impl App {
                 let row = row.filter(|r| *r < l.rows_len());
                 let tool = playlist::TOOL.iter().position(|r| r.contains(x, y)).filter(|_| !l.radio);
                 let paste = l.radio && playlist::PASTE.contains(x, y);
-                if row != l.hover || tool != l.hot_tool || paste != l.radio_paste_hot {
+                let search = lay.search.contains(x, y);
+                if row != l.hover || tool != l.hot_tool || paste != l.radio_paste_hot || search != l.search_hover {
                     l.hover = row;
                     l.hot_tool = tool;
                     l.radio_paste_hot = paste;
+                    l.search_hover = search;
                     self.dirty(Pane::List);
                 }
             }
@@ -82,11 +84,16 @@ impl App {
         self.ui.bar_hot = Hot::None;
         self.ui.list.hover = None;
         self.ui.list.hot_tool = None;
+        self.ui.list.search_hover = false;
         self.ui.eq_hot = None;
         self.dirty(pane);
     }
 
     pub fn mouse_down(&mut self, pane: Pane, x: i32, y: i32, dbl: bool, ctrl: bool, shift: bool) {
+        // 点到搜索框以外的地方：搜索框不再接收输入
+        if self.ui.list.search_focus && !(pane == Pane::List && self.list_layout().search.contains(x, y)) {
+            self.set_search_focus(false);
+        }
         let edges = self.edge_at(pane, x, y);
         if edges != 0 {
             return self.start_resize(pane, edges);
@@ -203,19 +210,16 @@ impl App {
         if let Some(i) = playlist::TOOL.iter().position(|r| r.contains(x, y)).filter(|_| !radio) {
             return self.act([Act::AddMenu, Act::EditMenu, Act::SortMenu][i].clone());
         }
-        let search = playlist::Layout::of(self.sizes.list).search;
-        if search.contains(x, y) {
-            self.ui.list.search_focus = true;
-            if x > search.right() - 20 && !self.ui.list.search.is_empty() {
+        let lay = self.list_layout();
+        if lay.search.contains(x, y) {
+            // 有字时点右边的「清除」：清空，继续输入
+            if x >= lay.search.right() - 20 && !self.ui.list.search.is_empty() {
                 self.ui.list.search.clear();
+                self.ui.list.scroll = 0;
             }
+            self.set_search_focus(true);
             return self.dirty(Pane::List);
         }
-        if self.ui.list.search_focus {
-            self.ui.list.search_focus = false;
-            self.dirty(Pane::List);
-        }
-        let lay = playlist::Layout::of(self.list_size());
         if lay.scroll.contains(x, y) {
             // 滚动条：按住滑块拖动；点空白处翻页
             let (ty, th) = lay.thumb(self.ui.list.rows_len(), self.ui.list.scroll);
@@ -262,14 +266,14 @@ impl App {
     pub fn right_click(&mut self, pane: Pane, x: i32, y: i32) {
         match pane {
             Pane::List if self.ui.list.radio => {
-                let lay = playlist::Layout::of(self.sizes.list);
+                let lay = self.list_layout();
                 let l = &mut self.ui.list;
                 l.radio_sel = if lay.rows.contains(x, y) { l.radio_rows.get(lay.row_at(y, l.scroll)).copied() } else { None };
                 self.dirty(Pane::List);
                 self.act(Act::RadioMenu);
             }
-            Pane::List if playlist::Layout::of(self.sizes.list).rows.contains(x, y) => {
-                let lay = playlist::Layout::of(self.sizes.list);
+            Pane::List if self.list_layout().rows.contains(x, y) => {
+                let lay = self.list_layout();
                 let l = &mut self.ui.list;
                 let row = lay.row_at(y, l.scroll);
                 if let Some(&id) = l.ids.get(row) {
@@ -287,8 +291,15 @@ impl App {
         }
     }
 
-    pub fn wheel(&mut self, pane: Pane, _x: i32, _y: i32, delta: i32) {
+    pub fn wheel(&mut self, pane: Pane, x: i32, y: i32, delta: i32) {
         match pane {
+            // 左边一栏放不下时，在它上面滚动的是这一栏
+            Pane::List if self.list_layout().tabs.contains(x, y) && self.max_tab_scroll() > 0 => {
+                let max = self.max_tab_scroll();
+                let l = &mut self.ui.list;
+                l.tab_scroll = (l.tab_scroll - delta * playlist::TAB_H / 120).clamp(0, max);
+                self.dirty(Pane::List);
+            }
             Pane::List => self.scroll_list(-delta * playlist::ROW_H * 3 / 120),
             _ => {
                 self.player.volume_step(if delta > 0 { 0.05 } else { -0.05 });
@@ -305,14 +316,22 @@ impl App {
         if !self.ui.list.search_focus {
             return;
         }
+        if ch == 27 {
+            // Esc：清空并结束输入
+            self.ui.list.search.clear();
+            self.ui.list.scroll = 0;
+            return self.set_search_focus(false);
+        }
         let l = &mut self.ui.list;
         match ch {
             8 => {
                 l.search.pop();
             }
-            27 => {
-                l.search.clear();
-                l.search_focus = false;
+            // Ctrl+V：粘贴到搜索框（只取第一行）
+            22 => {
+                if let Some(t) = super::lyricwin::clipboard_text() {
+                    l.search.push_str(t.lines().next().unwrap_or("").trim());
+                }
             }
             c if c >= 32 => {
                 if let Some(c) = char::from_u32(c) {
@@ -321,8 +340,52 @@ impl App {
             }
             _ => {}
         }
-        l.scroll = 0;
+        // 打字时光标一直亮着（停下来才开始闪）
+        self.ui.list.caret_t0 = Some(std::time::Instant::now());
+        self.ui.list.scroll = 0;
         self.dirty(Pane::List);
+    }
+
+    /// 搜索框开始 / 停止接收输入。系统光标只用来告诉输入法和读屏软件位置（分层窗口上不会画出来），
+    /// 看得见的光标是 playlist.rs 自己画的
+    pub fn set_search_focus(&mut self, on: bool) {
+        let l = &mut self.ui.list;
+        let was = l.search_focus;
+        l.search_focus = on;
+        l.caret_t0 = on.then(std::time::Instant::now);
+        let hwnd = self.win(Pane::List).hwnd;
+        unsafe {
+            if on && !was {
+                let _ = windows::Win32::UI::WindowsAndMessaging::CreateCaret(hwnd, None, 2, 13);
+            } else if !on && was {
+                let _ = windows::Win32::UI::WindowsAndMessaging::DestroyCaret();
+            }
+        }
+        if on {
+            self.place_caret();
+        }
+        self.dirty(Pane::List);
+    }
+
+    /// 系统光标放到搜索框里文字的末尾（输入法的候选窗口跟着它）
+    pub fn place_caret(&self) {
+        if self.ui.list.search_focus {
+            let (x, y) = playlist::search_caret(self.list_layout().search, &self.ui.list.search);
+            unsafe {
+                let _ = windows::Win32::UI::WindowsAndMessaging::SetCaretPos(x, y);
+            }
+        }
+    }
+
+    /// 搜索框的光标现在亮不亮：按系统的光标闪烁速度，从获得输入 / 最后一次打字时算起
+    pub fn caret_on(&self) -> bool {
+        let Some(t0) = self.ui.list.caret_t0 else { return false };
+        let ms = unsafe { windows::Win32::UI::WindowsAndMessaging::GetCaretBlinkTime() };
+        // 0xFFFFFFFF = 设置成不闪
+        if ms == 0 || ms == u32::MAX {
+            return true;
+        }
+        (t0.elapsed().as_millis() / ms as u128) % 2 == 0
     }
 
     pub fn on_key(&mut self, vk: VIRTUAL_KEY) {

@@ -80,6 +80,9 @@ impl App {
         self.ui.list.radio = false;
         let radio_tabs = self.radio_enabled().then_some(false);
         self.refresh_list();
+        let caret = self.caret_on();
+        self.ui.list.caret_drawn = caret;
+        self.ui.list.tab_scroll = 0;
         let ui = &self.ui;
         let l = &ui.list;
         let first = (l.scroll / playlist::ROW_H).max(0) as usize;
@@ -129,7 +132,12 @@ impl App {
             strip_tabs: radio_tabs,
             paste_hot: false,
             radio_empty: false,
+            tab_w: playlist::TAB_W,
+            tab_scroll: 0,
+            search_hover: l.search_hover,
+            caret_on: caret,
         };
         playlist::paint(c, &m);
+        self.place_caret();
     }
 }
