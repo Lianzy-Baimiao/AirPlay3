@@ -47,18 +47,27 @@ fn timestamp() -> String {
     )
 }
 
+static LOGGER: std::sync::OnceLock<&'static FileLogger> = std::sync::OnceLock::new();
+
+fn open(path: &Path) -> Option<File> {
+    let too_big = std::fs::metadata(path).map(|m| m.len() > 1 << 20).unwrap_or(false);
+    OpenOptions::new().create(true).append(!too_big).write(true).truncate(too_big).open(path).ok()
+}
+
 /// 初始化全局日志。可重复调用（只有第一次生效）。
 pub fn init(path: &Path) {
-    let too_big = std::fs::metadata(path).map(|m| m.len() > 1 << 20).unwrap_or(false);
-    let file = OpenOptions::new()
-        .create(true)
-        .append(!too_big)
-        .write(true)
-        .truncate(too_big)
-        .open(path)
-        .ok();
-    let logger = Box::leak(Box::new(FileLogger { file: Mutex::new(file) }));
+    let logger: &'static FileLogger = Box::leak(Box::new(FileLogger { file: Mutex::new(open(path)) }));
     if log::set_logger(logger).is_ok() {
         log::set_max_level(log::LevelFilter::Debug);
+        let _ = LOGGER.set(logger);
+    }
+}
+
+/// 配置目录换了位置：以后写到新的日志文件（关掉旧文件，旧目录才能删掉）。没初始化过日志时什么都不做
+pub fn retarget(path: &Path) {
+    if let Some(l) = LOGGER.get() {
+        let mut f = l.file.lock();
+        *f = None;
+        *f = open(path);
     }
 }

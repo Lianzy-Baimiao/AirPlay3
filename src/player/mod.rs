@@ -41,8 +41,8 @@ impl Core {
     }
 
     /// 把配置数据换到新位置（复制过去，以后都存在那里）；随后要保存一次，把最新的配置、曲库写过去
-    pub fn move_data(&mut self, target: Option<&std::path::Path>) -> Result<(), String> {
-        let new = self.dirs.relocate(target)?;
+    pub fn move_data(&mut self, to: &crate::config::Location) -> Result<(), String> {
+        let new = self.dirs.relocate(to)?;
         self.dirs = new;
         // 新位置可能有旧的配置（复制时不覆盖），强制再写一次
         self.saved_lib_rev = self.lib.rev.wrapping_sub(1);

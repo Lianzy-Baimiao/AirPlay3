@@ -124,8 +124,12 @@ impl App {
             self.close_cfgdir();
             return;
         }
-        // exe 旁：去掉指针文件；其它两种：指针文件记下位置
-        let r = self.player.core.lock().move_data(if choice == 1 { None } else { Some(&target) });
+        let to = match choice {
+            0 => crate::config::Location::System,
+            1 => crate::config::Location::Portable,
+            _ => crate::config::Location::Custom(target.clone()),
+        };
+        let r = self.player.core.lock().move_data(&to);
         match r {
             Ok(()) => {
                 self.player.save(true);
