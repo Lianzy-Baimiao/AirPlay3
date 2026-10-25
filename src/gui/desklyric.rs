@@ -245,7 +245,7 @@ fn rows(n: usize, lyr: Option<&Lyrics>, title: &str, idx: Option<usize>, progres
 }
 
 /// 没有歌词（或歌词开始前）显示的标题
-fn title_of(title: &str, artist: &str) -> String {
+pub(super) fn title_of(title: &str, artist: &str) -> String {
     match (title.is_empty(), artist.is_empty()) {
         (true, _) => "AirPlay3".to_string(),
         (false, true) => title.to_string(),

@@ -80,6 +80,8 @@ pub fn after_create(start_hidden: bool) {
         app.apply_topmost();
         app.sync_desk_lyric();
         app.sync_taskbar_lyric();
+        // 整理旧版本留下的文件关联（多关联的格式、所有文件的「打开方式」里都有本程序、exe 移动过）
+        std::thread::spawn(|| crate::platform::shell::tidy_associations(&super::settings_layout::group_exts(None)));
         // 仅调试构建：自动化自测时直接打开某个窗口
         #[cfg(debug_assertions)]
         match std::env::var("AIRPLAY3_TEST_OPEN").as_deref() {
@@ -90,6 +92,11 @@ pub fn after_create(start_hidden: bool) {
                 SetTimer(Some(app.bar_hwnd()), TIMER_TEST_SEARCH, 200, None);
             },
             Ok("radio") => app.show_radio_tab(true),
+            // 播放第一个清单的第一个电台，再换成迷你条
+            Ok("radio-minibar") => {
+                app.play_radio(0);
+                app.toggle_minibar();
+            }
             _ => {}
         }
         #[cfg(debug_assertions)]

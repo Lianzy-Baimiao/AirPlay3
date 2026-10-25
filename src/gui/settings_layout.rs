@@ -83,8 +83,9 @@ pub struct Item {
     pub w: Widget,
 }
 
-/// 文件关联页的格式：(显示的名字, 颜色组, 对应的扩展名（空 = 不支持，灰掉）, 列, 行)
-pub static FORMATS: [(&str, Tone, &[&str], i32, i32); 31] = [
+/// 文件关联页的格式：(显示的名字, 颜色组, 对应的扩展名（空 = 不支持，灰掉）, 列, 行)。
+/// 只关联页面上看得到的格式（启动时去掉旧版本多关联的，见 shell::tidy_associations）
+pub static FORMATS: [(&str, Tone, &[&str], i32, i32); 27] = [
     ("AAC", Tone::Khaki, &["aac"], 0, 0),
     ("AC3", Tone::Khaki, &["ac3"], 1, 0),
     ("AIFF", Tone::Khaki, &["aif", "aiff", "aifc"], 2, 0),
@@ -112,14 +113,7 @@ pub static FORMATS: [(&str, Tone, &[&str], i32, i32); 31] = [
     ("TTBL", Tone::Lavender, &[], 2, 6),
     ("TTPL", Tone::Lavender, &["ttpl"], 3, 6),
     ("CUE", Tone::Pink, &["cue"], 0, 7),
-    ("XSPF", Tone::Lavender, &["xspf"], 4, 9),
-    ("CAF", Tone::Teal, &["caf"], 4, 9),
-    ("MKA", Tone::Khaki, &["mka"], 4, 9),
-    ("WEBM", Tone::Khaki, &["webm"], 4, 9),
 ];
-
-/// 文件关联页上显示的格式（FORMATS 的前 27 个；后面几个跟着同组的一起关联）
-pub const SHOWN_FORMATS: usize = 27;
 
 /// 一组格式的扩展名（None = 全部）
 pub fn group_exts(g: Option<Tone>) -> Vec<&'static str> {
@@ -255,7 +249,7 @@ fn assoc_layout() -> Vec<Item> {
         let x = 179 + 50 * i as i32;
         v.push(pill(pr(x, 36, x + 45), g.unwrap_or(Tone::Grey), "", Toggle::Group(g)));
     }
-    for (i, f) in FORMATS.iter().take(SHOWN_FORMATS).enumerate() {
+    for (i, f) in FORMATS.iter().enumerate() {
         let (x, y) = (144 + 80 * f.3, 66 + 22 * f.4);
         v.push(pill(pr(x, y, x + 75), f.1, f.0, Toggle::Format(i)));
     }

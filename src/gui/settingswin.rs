@@ -11,7 +11,7 @@ use super::panels::frame;
 use super::panels::pill;
 use super::panels::settings::{self as sp, SettingsModel, State};
 use super::popup::Popup;
-use super::settings_layout::{self as lay, Btn, Choice, FORMATS, Item, SHOWN_FORMATS, Toggle, Widget};
+use super::settings_layout::{self as lay, Btn, Choice, FORMATS, Item, Toggle, Widget};
 use super::settings_model::{self as model, Field, Key, TAB_ASSOC};
 use crate::config::{HotkeyAction, KeyCombo, Settings};
 
@@ -76,7 +76,7 @@ fn assoc_on(assoc: &[bool], t: Toggle) -> bool {
     match t {
         Toggle::Format(i) => assoc.get(i).copied().unwrap_or(false),
         Toggle::Group(g) => {
-            let mut shown = (0..SHOWN_FORMATS).filter(|&i| !FORMATS[i].2.is_empty() && g.is_none_or(|t| t == FORMATS[i].1));
+            let mut shown = (0..FORMATS.len()).filter(|&i| !FORMATS[i].2.is_empty() && g.is_none_or(|t| t == FORMATS[i].1));
             shown.all(|i| assoc.get(i).copied().unwrap_or(false))
         }
         _ => false,

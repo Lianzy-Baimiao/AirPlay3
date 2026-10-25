@@ -1,6 +1,7 @@
 //! 迷你条（原版 minibar，2026-10-14 照原版逐项实测）：两条 304×24 的窄条。
 //! 上面的控制条：平时只有已播放时间和标语；鼠标移上去（约 0.45 秒淡入）才出现音量、上一首·暂停·下一首、还原·关闭。
 //! 下面的歌词条：所有歌词排成一行向左滚动（当前句亮），两头淡出；鼠标移上去出现 □（换成歌词图片面板）和 ✕（关掉歌词条）。
+//! 听电台时没有歌词，歌词条显示电台名和正在播的节目（放不下时循环滚动）。
 
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
@@ -44,11 +45,27 @@ pub struct Minibar {
     slogan: f32,
     /// 各行歌词的宽度：(歌词的标识, 宽度)
     widths: (u64, Vec<i32>),
+    /// 听电台时歌词条上的文字：(文字, 宽度, 换成这段文字的时刻)
+    radio: Option<(String, i32, std::time::Instant)>,
 }
 
 impl Minibar {
     pub fn new(top: Popup, bottom: Popup, fade: Option<Anim>) -> Minibar {
-        Minibar { top, bottom, hover: [false; 2], drag: None, last: LineState::default(), ticks: 0, fade, hover_t: [0.0; 2], strip: true, panes: [false; 4], slogan: -1.0, widths: (0, Vec::new()) }
+        Minibar {
+            top,
+            bottom,
+            hover: [false; 2],
+            drag: None,
+            last: LineState::default(),
+            ticks: 0,
+            fade,
+            hover_t: [0.0; 2],
+            strip: true,
+            panes: [false; 4],
+            slogan: -1.0,
+            widths: (0, Vec::new()),
+            radio: None,
+        }
     }
 }
 
@@ -59,6 +76,10 @@ const TICK_GAP: i32 = 24;
 const TICK_AT: i32 = 150;
 const FADE_FROM: i32 = 8;
 const FADE_TO: i32 = 42;
+/// 电台名放不下时的滚动：每圈开头停几秒、每秒移几个像素、首尾之间空多少
+const MARQUEE_PAUSE: f64 = 2.0;
+const MARQUEE_SPEED: f64 = 30.0;
+const MARQUEE_GAP: i32 = 48;
 
 /// 所有任务栏（主屏 Shell_TrayWnd，其它显示器 Shell_SecondaryTrayWnd）的位置
 fn taskbars() -> Vec<R> {
@@ -136,6 +157,28 @@ fn ticker_scroll(times: &[f64], starts: &[i32], t: f64) -> (Option<usize>, f64) 
     (Some(i), a + (b as f64 - a) * k)
 }
 
+/// 听电台时歌词条上的文字（亮色，与当前句相同）：放得下时居中；放不下时从淡出区的里边开始，
+/// 停 MARQUEE_PAUSE 秒后向左匀速滚动，首尾相接循环
+fn radio_line(m: &mut Minibar, s: String) -> Vec<(i32, String, bool)> {
+    if s.trim().is_empty() {
+        m.radio = None;
+        return Vec::new();
+    }
+    if m.radio.as_ref().is_none_or(|r| r.0 != s) {
+        let w = text::measure(&s, FONT).0.round() as i32;
+        m.radio = Some((s, w, std::time::Instant::now()));
+    }
+    let Some((s, w, t0)) = m.radio.as_ref() else { return Vec::new() };
+    let room = W - 2 * FADE_TO;
+    if *w <= room {
+        return vec![((W - w) / 2, s.clone(), true)];
+    }
+    let span = (w + MARQUEE_GAP) as f64;
+    let t = (t0.elapsed().as_secs_f64() % (MARQUEE_PAUSE + span / MARQUEE_SPEED) - MARQUEE_PAUSE).max(0.0);
+    let x0 = FADE_TO - (t * MARQUEE_SPEED).round() as i32;
+    [x0, x0 + w + MARQUEE_GAP].into_iter().filter(|&x| x < W && x + w > 0).map(|x| (x, s.clone(), true)).collect()
+}
+
 /// 文字后面的暗色光晕：玻璃几乎透明，放在什么背景上都看得清
 const HALO: Rgba = Rgba(16, 16, 16, 190);
 
@@ -179,7 +222,9 @@ impl App {
         }
         let sl = (m.slogan - slogan).abs() > 1e-3;
         m.slogan = slogan;
-        if st != m.last || fading || hov || sl || playing {
+        // 电台名放不下时一直在滚
+        let scrolling = m.strip && m.radio.as_ref().is_some_and(|r| r.1 > W - 2 * FADE_TO);
+        if st != m.last || fading || hov || sl || playing || scrolling {
             m.last = st;
             self.paint_minibar();
         }
@@ -269,7 +314,8 @@ impl App {
             }
         }
         m.top.present();
-        // 下面的歌词条：所有歌词排成一行向左滚动，当前句亮，两头淡出；没有带时间轴的歌词时是空的（与原版相同）
+        // 下面的歌词条：所有歌词排成一行向左滚动，当前句亮，两头淡出；歌曲没有带时间轴的歌词时是空的（与原版相同），
+        // 听电台时是电台名和节目
         let c = &mut m.bottom.canvas;
         strip(c, h1);
         if !lines.is_empty() {
@@ -308,6 +354,12 @@ impl App {
     fn ticker_lines(&mut self, pos: f64) -> Vec<(i32, String, bool)> {
         let n = self.now.lock();
         let Some(m) = self.minibar.as_mut() else { return Vec::new() };
+        if self.ui.snap.radio.is_none() {
+            m.radio = None;
+        } else if m.strip {
+            // 电台没有歌词：显示「电台名 - 节目」（连接中、出错时是状态），与桌面歌词相同
+            return radio_line(m, super::desklyric::title_of(&n.title, &n.artist));
+        }
         let Some(l) = n.lyrics.as_ref().filter(|l| l.synced && !l.lines.is_empty() && m.strip) else { return Vec::new() };
         let t = pos + n.lyric_offset_ms as f64 / 1000.0 + l.offset_ms as f64 / 1000.0;
         // 各句的宽度只在换了歌词时量一次
