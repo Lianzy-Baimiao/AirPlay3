@@ -12,6 +12,12 @@ fn main() {
     let files: Vec<PathBuf> = args.iter().filter(|a| !a.starts_with("--")).map(PathBuf::from).collect();
     let start_in_tray = args.iter().any(|a| a == "--tray");
 
+    // 卸载程序调用：删掉指向本 exe 的文件关联和开机启动后退出（不开窗口、不建数据目录）
+    if args.iter().any(|a| a == "--unregister") {
+        airplay3::platform::shell::unregister_self();
+        return;
+    }
+
     // 单实例：已有实例时把文件交给它（或只激活它的窗口）后退出。
     // 仅调试构建：AIRPLAY3_TEST_ALONE 时不管别的实例（自测用的副本不会把测试文件交给用户正在用的程序）
     #[cfg(debug_assertions)]

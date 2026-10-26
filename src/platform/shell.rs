@@ -241,6 +241,25 @@ pub fn unregister_associations(exts: &[&str]) {
     }
 }
 
+/// 两个 exe 路径是不是同一个（Windows 路径不分大小写）
+fn same_exe(a: &str, b: &str) -> bool {
+    !a.is_empty() && a.to_lowercase() == b.to_lowercase()
+}
+
+/// 卸载时（安装包运行 `AirPlay3.exe --unregister`）：删掉指向本 exe 的文件关联和开机启动。
+/// 指向别处（另一份便携版）的登记不动，免得卸载一份把另一份的关联也删了
+pub fn unregister_self() {
+    let me = exe();
+    let cmd = get_str(&format!(r"Software\Classes\{PROGID}\shell\open\command"), None).unwrap_or_default();
+    if same_exe(command_exe(&cmd), &me) {
+        unregister_associations(&[]);
+    }
+    let run = get_str(RUN_KEY, Some("AirPlay3")).unwrap_or_default();
+    if same_exe(command_exe(&run), &me) {
+        set_autostart(false);
+    }
+}
+
 /// 用默认程序打开（网址、文件夹、系统设置页）。
 pub fn open(target: &str) {
     unsafe {
@@ -250,7 +269,14 @@ pub fn open(target: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::command_exe;
+    use super::{command_exe, same_exe};
+
+    #[test]
+    fn same_exe_ignores_case_only() {
+        assert!(same_exe(r"C:\Users\A\AppData\Local\Programs\AirPlay3\AirPlay3.exe", r"c:\users\a\appdata\local\programs\airplay3\AIRPLAY3.EXE"));
+        assert!(!same_exe(r"E:\dist\AirPlay3.exe", r"C:\Users\A\AppData\Local\Programs\AirPlay3\AirPlay3.exe"));
+        assert!(!same_exe("", r"C:\x.exe"));
+    }
 
     #[test]
     fn exe_of_open_command() {

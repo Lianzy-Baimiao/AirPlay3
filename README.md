@@ -73,10 +73,10 @@ AirPlay3 是 2012 年前后的一款国产绿色音乐播放器（airplayme.com�
 
 ## 使用
 
-到 [Releases](../../releases) 下载，直接运行即可，无需安装。
+到 [Releases](../../releases) 下载：
 
-- 单独下载 `AirPlay3.exe`：配置、曲库、歌词和图片缓存存在 `%APPDATA%\AirPlay3`，exe 放在哪（比如桌面）旁边都不会多出文件
-- 下载 zip（便携版）：解压出来的 `AIRPLAY_CONFIG` 文件夹就是数据目录，整个文件夹拷到别处也能用。exe 旁边有 `AIRPLAY_CONFIG` 文件夹时总是用它
+- 安装包 `AirPlay3-vX.Y.Z-windows-x64-setup.exe`：装到当前用户（默认 `%LOCALAPPDATA%\Programs\AirPlay3`），不需要管理员权限；建开始菜单和桌面快捷方式，可在「设置 → 应用」里卸载。配置、曲库、歌词和图片缓存存在 `%APPDATA%\AirPlay3`。卸载时删掉这份程序的文件关联和开机启动，并询问是否同时删除数据。新版本直接装在旧版本上即可升级，数据不受影响
+- 便携版 zip：解压出来的 `AIRPLAY_CONFIG` 文件夹就是数据目录，整个文件夹拷到别处也能用。exe 旁边有 `AIRPLAY_CONFIG` 文件夹时总是用它
 - 「配置 → 基本设置」最下面一行可以改存到操作系统默认位置、程序旁边或其它文件夹，现有数据会一起搬过去
 - 命令行：`AirPlay3.exe 文件或文件夹...` 打开并播放；`--tray` 启动时最小化到托盘
 - 右键播放条或托盘图标打开主菜单（迷你歌词、桌面歌词、任务栏歌词、配置都在这里）；窗口拖到看不见的地方时点「恢复默认位置」；右键歌词图片可下载歌词和专辑图片
@@ -89,6 +89,12 @@ AirPlay3 是 2012 年前后的一款国产绿色音乐播放器（airplayme.com�
 ```bash
 cp .cargo/config.example.toml .cargo/config.toml   # 按本机修改 MinGW 路径
 cargo build --release
+```
+
+安装包用 [Inno Setup 7](https://jrsoftware.org/isinfo.php) 生成（版本号从 exe 里读）：
+
+```bash
+ISCC.exe installer/AirPlay3.iss    # 输出到 target/installer；exe 不在 target/release 时用 /DBinDir= 指定
 ```
 
 ## 许可
