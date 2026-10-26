@@ -20,6 +20,11 @@ impl Font {
     pub const fn px(size: f32, bold: bool) -> Font {
         Font { size10: (size * 10.0) as u16, bold }
     }
+
+    /// 按界面缩放放大后的字号（画在实际像素上用）
+    pub fn scaled(self, scale: f32) -> Font {
+        if scale == 1.0 { self } else { Font { size10: (self.size10 as f32 * scale).round() as u16, bold: self.bold } }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

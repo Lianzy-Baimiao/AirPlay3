@@ -141,8 +141,8 @@ impl Surface {
 
     /// pos 为 None 时不改变窗口位置（子窗口的位置由调用方用 SetWindowPos 按父窗口坐标设置）
     pub fn present_at(&mut self, hwnd: HWND, c: &Canvas, pos: Option<(i32, i32)>) {
-        if self.w != c.w || self.h != c.h {
-            *self = Surface::new(c.w, c.h);
+        if self.w != c.pw || self.h != c.ph {
+            *self = Surface::new(c.pw, c.ph);
         }
         unsafe {
             if !self.bits.is_null() {
@@ -150,7 +150,7 @@ impl Surface {
             }
             let blend = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8 };
             let pt = pos.map(|(x, y)| POINT { x, y });
-            let size = SIZE { cx: c.w, cy: c.h };
+            let size = SIZE { cx: c.pw, cy: c.ph };
             let src = POINT { x: 0, y: 0 };
             let _ = UpdateLayeredWindow(hwnd, None, pt.as_ref().map(|p| p as *const POINT), Some(&size), Some(self.dc), Some(&src), COLORREF(0), Some(&blend), ULW_ALPHA);
         }

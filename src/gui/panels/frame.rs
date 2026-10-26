@@ -26,11 +26,10 @@ pub fn panel(c: &mut Canvas, strip_hover: f32) -> R {
     panel_ex(c, strip_hover)
 }
 
-/// 外框形状（顶部 `r_top`、底部 `r_bottom` 圆角）的有符号距离（像素中心，内部为负）；
+/// 外框形状（左上右下 l t rr b，顶部 `r_top`、底部 `r_bottom` 圆角）在点 (px, py) 的有符号距离（内部为负；都是实际像素）；
 /// 底部是直角时，两条边外侧的阴影在角上减半（与原版相同）
-fn sdf(o: R, x: i32, y: i32, r_top: f32, r_bottom: f32) -> (f32, bool) {
-    let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-    let (l, t, rr, b) = (o.x as f32, o.y as f32, o.right() as f32, o.bottom() as f32);
+#[allow(clippy::too_many_arguments)]
+fn sdf(l: f32, t: f32, rr: f32, b: f32, px: f32, py: f32, r_top: f32, r_bottom: f32) -> (f32, bool) {
     // 很小的框（出现动画刚开始）：圆角不超过一半宽高
     let r = (if py < (t + b) / 2.0 { r_top } else { r_bottom }).min((rr - l) / 2.0).min((b - t) / 2.0);
     if r > 0.0 && (px < l + r || px > rr - r) && (py < t + r || py > b - r) {
@@ -53,25 +52,34 @@ fn shadow(d: f32) -> f32 {
     }
 }
 
-/// 画一个外框：阴影、1 像素描边（颜色由 `stroke(行)` 给出）、内部（`fill(x, 行)`）
+/// 画一个外框：阴影、1 像素描边（颜色由 `stroke(行)` 给出）、内部（`fill(x, 行)`）。o、x、行都是逻辑像素；
+/// 放大时外框的边按实际像素取整、按实际像素抗锯齿（边缘清楚），颜色按每个实际像素所在的逻辑像素取
 pub fn shape(c: &mut Canvas, o: R, r_top: f32, r_bottom: f32, stroke: impl Fn(i32) -> Rgba, fill: impl Fn(i32, i32) -> Rgba) {
-    for y in 0..c.h {
-        for x in 0..c.w {
-            let (d, corner) = sdf(o, x, y, r_top, r_bottom);
-            if d >= 2.5 {
+    let s = c.scale;
+    let p = c.tr(o);
+    let (l, t, rr, b) = (p.x as f32, p.y as f32, p.right() as f32, p.bottom() as f32);
+    let (rt, rb, bw) = (r_top * s, r_bottom * s, c.line_px());
+    let cols: Vec<i32> = (0..c.pw).map(|x| c.lp(x)).collect();
+    for y in 0..c.ph {
+        let row = c.lp(y);
+        for x in 0..c.pw {
+            let (d, corner) = sdf(l, t, rr, b, x as f32 + 0.5, y as f32 + 0.5, rt, rb);
+            // 阴影的宽度是逻辑像素
+            let dl = d / s;
+            if dl >= 2.5 {
                 continue;
             }
             let outer = (0.5 - d).clamp(0.0, 1.0);
-            let inner = (-0.5 - d).clamp(0.0, 1.0);
+            let inner = (0.5 - bw - d).clamp(0.0, 1.0);
             if outer < 1.0 {
-                let a = shadow(d.max(0.5)) * if corner { 0.5 } else { 1.0 };
-                c.blend(x, y, Rgba(0, 0, 0, a.round() as u8), 1.0 - outer);
+                let a = shadow(dl.max(0.5)) * if corner { 0.5 } else { 1.0 };
+                c.blend_px(x, y, Rgba(0, 0, 0, a.round() as u8), 1.0 - outer);
             }
             if inner > 0.0 {
-                c.blend(x, y, fill(x, y), inner);
+                c.blend_px(x, y, fill(cols[x as usize], row), inner);
             }
             if outer > inner {
-                c.blend(x, y, stroke(y), outer - inner);
+                c.blend_px(x, y, stroke(row), outer - inner);
             }
         }
     }

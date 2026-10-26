@@ -1,10 +1,36 @@
 //! 所有图标、像素数字、标志的画法（原创，按原版界面的样子设计：白色圆润的图形，外面一圈淡淡的暗边）。
 
-use super::sdf::{S, Shape, draw};
+use std::cell::Cell as StdCell;
+
+use super::sdf::{S, Shape};
 use super::{Skin, Sprite};
 
 pub const LOGO_W: u32 = 120;
 pub const LOGO_H: u32 = 66;
+
+thread_local! {
+    /// 正在画的这套图的缩放（build_at 里设好）
+    static K: StdCell<f32> = const { StdCell::new(1.0) };
+}
+
+fn k() -> f32 {
+    K.with(|c| c.get())
+}
+
+/// 逻辑像素 v 在缩放 k 时的实际像素（四舍五入）
+pub fn px(v: f32, k: f32) -> u32 {
+    (v * k + 0.5).floor().max(0.0) as u32
+}
+
+/// 逻辑尺寸 w×h 的精灵图（按正在画的缩放放大）
+fn sprite(w: u32, h: u32) -> Sprite {
+    Sprite::new(px(w as f32, k()), px(h as f32, k()))
+}
+
+/// 把形状画进逻辑区域（按正在画的缩放）
+fn draw(sp: &mut Sprite, ox: u32, oy: u32, w: u32, h: u32, shape: &Shape, rim: bool) {
+    super::sdf::draw(sp, ox, oy, w, h, shape, rim, k());
+}
 
 fn rect(x0: f32, y0: f32, x1: f32, y1: f32, r: f32) -> S {
     S::Rect(x0, y0, x1, y1, r)
@@ -23,20 +49,28 @@ fn cell(sp: &mut Sprite, n: u32, col: u32, row: u32, shape: Shape) {
     draw(sp, col * n, row * n, n, n, &shape, true);
 }
 
-pub fn build() -> Skin {
-    let mut player = Sprite::new(128, 32);
+/// 按缩放 scale 画一整套图
+pub fn build_at(scale: f32) -> Skin {
+    K.with(|c| c.set(scale));
+    let s = build();
+    K.with(|c| c.set(1.0));
+    s
+}
+
+fn build() -> Skin {
+    let mut player = sprite(128, 32);
     big_controls(&mut player);
-    let mut mini = Sprite::new(64, 48);
+    let mut mini = sprite(64, 48);
     small_icons(&mut mini);
-    let mut gui10 = Sprite::new(30, 10);
+    let mut gui10 = sprite(30, 10);
     // 迷你条：还原（顶边粗的方框）、关闭
     cell(&mut gui10, 10, 1, 0, Shape::of(vec![rect(1.0, 2.0, 9.0, 8.6, 0.4)]).minus(vec![rect(2.4, 4.2, 7.6, 7.2, 0.0)]));
     cell(&mut gui10, 10, 2, 0, Shape::of(vec![line(2.4, 2.4, 7.6, 7.6, 1.8), line(7.6, 2.4, 2.4, 7.6, 1.8)]));
-    let mut gui15 = Sprite::new(90, 60);
+    let mut gui15 = sprite(90, 60);
     window_icons(&mut gui15);
-    let mut icon15 = Sprite::new(165, 45);
+    let mut icon15 = sprite(165, 45);
     list_icons(&mut icon15);
-    Skin { player, mini, gui10, gui15, icon15, num6x8: digits(), logo: logo(), logo_arc: logo_arc(), cover: cover() }
+    Skin { player, mini, gui10, gui15, icon15, num6x8: digits(), logo: logo(), logo_arc: logo_arc(), cover: cover(), scale: k() }
 }
 
 /// 播放条上的大号按钮（32×32）
@@ -184,12 +218,30 @@ fn digits() -> Sprite {
             }
         }
     }
-    sp
+    nearest(&sp, k())
 }
-/// 白色图形改成自上而下的灰度渐变（top → bottom，在 y0..y1 之间）
+
+/// 按最近的像素放大（像素画：放大后仍是方块）；每个实际像素取它所在的那个逻辑像素
+fn nearest(sp: &Sprite, k: f32) -> Sprite {
+    if k == 1.0 {
+        return sp.clone();
+    }
+    let mut out = Sprite::new(px(sp.w as f32, k), px(sp.h as f32, k));
+    let src = |p: u32, n: u32| ((((p as f32 + 0.5) / k).ceil() as i32 - 1).clamp(0, n as i32 - 1)) as u32;
+    for y in 0..out.h {
+        for x in 0..out.w {
+            out.px[(y * out.w + x) as usize] = sp.at(src(x, sp.w), src(y, sp.h));
+        }
+    }
+    out
+}
+
+/// 白色图形改成自上而下的灰度渐变（top → bottom，在逻辑行 y0..y1 之间）
 fn gradient(sp: &mut Sprite, y0: f32, y1: f32, top: f32, bottom: f32) {
+    let kk = k();
     for y in 0..sp.h {
-        let t = ((y as f32 + 0.5 - y0) / (y1 - y0)).clamp(0.0, 1.0);
+        let t = ((y as f32 + 0.5) / kk - y0) / (y1 - y0);
+        let t = t.clamp(0.0, 1.0);
         let g = (top + (bottom - top) * t) / 255.0;
         for x in 0..sp.w {
             let p = &mut sp.px[(y * sp.w + x) as usize];
@@ -229,7 +281,7 @@ fn logo() -> Sprite {
         stem(115.4, xh, 56.0),
         S::Arc(109.2, 56.0, 6.2, 0.0, 120.0, sw),
     ];
-    let mut sp = Sprite::new(LOGO_W, LOGO_H);
+    let mut sp = sprite(LOGO_W, LOGO_H);
     draw(&mut sp, 0, 0, LOGO_W, LOGO_H, &Shape::of(glyphs), false);
     gradient(&mut sp, xh - 12.0, 64.0, 210.0, 128.0);
     sp
@@ -237,11 +289,13 @@ fn logo() -> Sprite {
 
 /// 字样上方的弧线：两头细、渐隐（白色，按焦点颜色着色）
 fn logo_arc() -> Sprite {
-    let mut sp = Sprite::new(LOGO_W, LOGO_H);
+    let mut sp = sprite(LOGO_W, LOGO_H);
+    let kk = k();
     let (cx, cy, r, a0, a1) = (69.2f32, 57.97f32, 55.28f32, 216.4f32, 320.6f32);
-    for y in 0..LOGO_H {
-        for x in 0..LOGO_W {
-            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+    for y in 0..sp.h {
+        for x in 0..sp.w {
+            // 像素中心的逻辑坐标；离弧线的距离换成实际像素再抗锯齿
+            let (px, py) = ((x as f32 + 0.5) / kk, (y as f32 + 0.5) / kk);
             let ang = (py - cy).atan2(px - cx).to_degrees().rem_euclid(360.0);
             let t = (ang - a0) / (a1 - a0);
             if !(0.0..=1.0).contains(&t) {
@@ -250,10 +304,10 @@ fn logo_arc() -> Sprite {
             // 中间约 2.2 像素宽，两头收细；左边淡、右边亮
             let taper = (t.min(1.0 - t) * 6.0).min(1.0);
             let w = 0.5 + 1.7 * taper;
-            let cov = (w / 2.0 + 0.5 - ((px - cx).hypot(py - cy) - r).abs()).clamp(0.0, 1.0);
+            let cov = (w / 2.0 * kk + 0.5 - ((px - cx).hypot(py - cy) - r).abs() * kk).clamp(0.0, 1.0);
             let a = cov * taper * (0.55 + 0.45 * t);
             if a > 0.0 {
-                sp.px[(y * LOGO_W + x) as usize] = [255, 255, 255, (a * 255.0).round() as u8];
+                sp.px[(y * sp.w + x) as usize] = [255, 255, 255, (a * 255.0).round() as u8];
             }
         }
     }
@@ -262,7 +316,7 @@ fn logo_arc() -> Sprite {
 
 /// 没有封面时的默认图案：粗笔画的单层 a（与标志的字形一致）
 fn cover() -> Sprite {
-    let mut sp = Sprite::new(128, 128);
+    let mut sp = sprite(128, 128);
     // 圆环 + 右侧比圆环更靠下的竖笔（两者之间在右下角留出一个缺口）
     let shape = Shape::of(vec![S::Ring(54.0, 62.0, 31.0, 22.0), rect(82.0, 30.0, 106.0, 114.0, 12.0)]);
     draw(&mut sp, 0, 0, 128, 128, &shape, false);

@@ -128,14 +128,9 @@ pub fn pill_box(c: &mut Canvas, pill: R, tone: Tone, on: bool, dim: bool) {
 pub fn check(c: &mut Canvas, x: i32, y: i32, col: Rgba, shadow: bool) {
     let s = Shape::of(vec![S::Line(1.6, 5.6, 4.4, 8.4, 2.2), S::Line(4.4, 8.4, 9.6, 1.6, 2.2)]);
     let draw = |c: &mut Canvas, dx: i32, dy: i32, col: Rgba| {
-        for py in -1..12 {
-            for px in -1..13 {
-                let cov = (0.5 - s.d(px as f32 + 0.5, py as f32 + 0.5)).clamp(0.0, 1.0);
-                if cov > 0.0 {
-                    put(c, x + px + dx, y + py + dy, col, cov);
-                }
-            }
-        }
+        let (ox, oy, k) = (x + dx, y + dy, c.scale);
+        let (fx, fy) = (ox as f32, oy as f32);
+        c.shade(R::new(ox - 1, oy - 1, 14, 13), true, |lx, ly| (col, (0.5 - s.d(lx - fx, ly - fy) * k).clamp(0.0, 1.0)));
     };
     if shadow {
         draw(c, 1, 1, Rgba(0x50, 0x54, 0x5B, 200));

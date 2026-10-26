@@ -88,25 +88,9 @@ pub fn fade_alpha(a: &Anim, t: f32) -> f32 {
     }
 }
 
-/// 把 src 原样复制到 dst 的 (ox, oy)（超出的部分不画）
-fn copy_into(dst: &mut Canvas, src: &Canvas, ox: i32, oy: i32) {
-    for y in 0..src.h {
-        let dy = oy + y;
-        if dy < 0 || dy >= dst.h {
-            continue;
-        }
-        for x in 0..src.w {
-            let dx = ox + x;
-            if dx >= 0 && dx < dst.w {
-                dst.px[(dy * dst.w + dx) as usize] = src.px[(y * src.w + x) as usize];
-            }
-        }
-    }
-}
-
-/// 只有框和主体底色的画面（内容淡入 / 淡出时的另一端），返回主体区域
-fn chrome(w: i32, h: i32, strip_hover: f32) -> (Canvas, super::canvas::R) {
-    let mut f = Canvas::new(w, h);
+/// 只有框和主体底色的画面（内容淡入 / 淡出时的另一端；与 c 同样大小和缩放），返回主体区域
+fn chrome(c: &Canvas, strip_hover: f32) -> (Canvas, super::canvas::R) {
+    let mut f = c.like(c.w, c.h);
     let body = frame::panel(&mut f, strip_hover);
     (f, body)
 }
@@ -116,16 +100,12 @@ fn grown(c: &mut Canvas, body: super::canvas::R, k: f32, strip_hover: f32) {
     let (left, top, right, bottom) = (body.x, body.y, c.w - body.right(), c.h - body.bottom());
     let bw = (4.0 + (body.w - 4).max(0) as f32 * k).round() as i32;
     let bh = (4.0 + (body.h - 4).max(0) as f32 * k).round() as i32;
-    let mut g = Canvas::new(bw + left + right, bh + top + bottom);
+    let mut g = c.like(bw + left + right, bh + top + bottom);
     let inner = frame::panel(&mut g, strip_hover);
-    for y in inner.y..inner.bottom() {
-        for x in inner.x..inner.right() {
-            g.px[(y * g.w + x) as usize] = [0; 4];
-        }
-    }
+    g.clear_rect(inner);
     let (cx, cy) = (body.x + body.w / 2, body.y + body.h / 2);
     c.clear();
-    copy_into(c, &g, cx - bw / 2 - left, cy - bh / 2 - top);
+    c.blit(&g, cx - bw / 2 - left, cy - bh / 2 - top);
 }
 
 /// 内容在 a（0 = 只有框和底色，1 = 完整画面）之间插值（预乘颜色直接插值）
@@ -147,7 +127,7 @@ pub fn panel_frame(c: &mut Canvas, a: &Anim, strip_hover: f32) -> bool {
             if t >= GROW_IN + FADE_IN {
                 return false;
             }
-            let (base, body) = chrome(c.w, c.h, strip_hover);
+            let (base, body) = chrome(c, strip_hover);
             if t < GROW_IN {
                 grown(c, body, STEPS[((t / STEP_IN) as usize).min(8)], strip_hover);
             } else {
@@ -159,7 +139,7 @@ pub fn panel_frame(c: &mut Canvas, a: &Anim, strip_hover: f32) -> bool {
                 c.clear();
                 return false;
             }
-            let (base, body) = chrome(c.w, c.h, strip_hover);
+            let (base, body) = chrome(c, strip_hover);
             if t < FADE_OUT {
                 mix(c, &base, 1.0 - t / FADE_OUT);
             } else {

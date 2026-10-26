@@ -31,7 +31,7 @@ impl Popup {
     }
 
     pub fn resize(&mut self, w: i32, h: i32) {
-        if self.canvas.w != w || self.canvas.h != h {
+        if self.canvas.w != w || self.canvas.h != h || self.canvas.scale != super::scale::get() {
             self.canvas = Canvas::new(w, h);
             self.dirty = true;
         }

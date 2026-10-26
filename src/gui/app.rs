@@ -231,7 +231,7 @@ impl App {
             let pane = self.wins[i].0;
             let (cw, ch) = self.sizes.size(pane);
             let mut canvas = std::mem::replace(&mut self.wins[i].1.canvas, Canvas::new(0, 0));
-            if canvas.w != cw || canvas.h != ch {
+            if canvas.w != cw || canvas.h != ch || canvas.scale != super::scale::get() {
                 canvas = Canvas::new(cw, ch);
             }
             self.paint(pane, &mut canvas);

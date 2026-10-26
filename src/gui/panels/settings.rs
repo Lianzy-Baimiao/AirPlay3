@@ -154,13 +154,6 @@ fn draw_glyph(c: &mut Canvas, g: Glyph, cx: i32, cy: i32, col: Rgba) {
         Glyph::Window => Shape::of(vec![S::Rect(-5.0, 0.0, 5.0, 8.0, 0.5)]).minus(vec![S::Rect(-3.6, 2.6, 3.6, 6.6, 0.0)]),
     };
     let ox = if matches!(g, Glyph::Mute | Glyph::VolDown | Glyph::VolUp) { cx - 5 } else { cx };
-    for py in -2..12 {
-        for px in -8..13 {
-            let cov = (0.5 - s.d(px as f32 + 0.5, py as f32 + 0.5)).clamp(0.0, 1.0);
-            let (x, y) = (ox + px, cy - 4 + py);
-            if cov > 0.0 && x >= 0 && y >= 0 && x < c.w && y < c.h {
-                c.blend(x, y, col, cov);
-            }
-        }
-    }
+    let (fx, fy, k) = (ox as f32, (cy - 4) as f32, c.scale);
+    c.shade(R::new(ox - 8, cy - 6, 21, 14), false, |x, y| (col, (0.5 - s.d(x - fx, y - fy) * k).clamp(0.0, 1.0)));
 }

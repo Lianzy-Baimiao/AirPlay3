@@ -91,19 +91,25 @@ impl Shape {
     }
 }
 
-/// 把形状画进精灵图 (ox, oy) 起的 w×h 区域：白色图形；`rim` 为 true 时外面一圈约 1 像素的淡淡暗边
-pub fn draw(sp: &mut Sprite, ox: u32, oy: u32, w: u32, h: u32, shape: &Shape, rim: bool) {
-    for y in 0..h {
-        for x in 0..w {
-            let d = shape.d(x as f32 + 0.5, y as f32 + 0.5);
-            let cov = (0.5 - d).clamp(0.0, 1.0);
+/// 把形状画进精灵图里逻辑坐标 (ox, oy) 起的 w×h 区域（形状的坐标从区域左上角算），按缩放 k 画在实际像素上：
+/// 白色图形；`rim` 为 true 时外面一圈约 1 个逻辑像素的淡淡暗边
+#[allow(clippy::too_many_arguments)]
+pub fn draw(sp: &mut Sprite, ox: u32, oy: u32, w: u32, h: u32, shape: &Shape, rim: bool, k: f32) {
+    let e = |v: u32| ((v as f32 * k) + 0.5).floor() as u32;
+    let (x0, y0, x1, y1) = (e(ox), e(oy), e(ox + w), e(oy + h));
+    for y in y0..y1 {
+        for x in x0..x1 {
+            // 像素中心的逻辑坐标（相对区域左上角）；距离换成实际像素再抗锯齿
+            let (lx, ly) = if k == 1.0 { ((x - x0) as f32 + 0.5, (y - y0) as f32 + 0.5) } else { ((x as f32 + 0.5) / k - ox as f32, (y as f32 + 0.5) / k - oy as f32) };
+            let d = shape.d(lx, ly);
+            let cov = (0.5 - d * k).clamp(0.0, 1.0);
             let shadow = if rim { (1.4 - d).clamp(0.0, 1.0) * 0.55 } else { 0.0 };
             let a = cov + shadow * (1.0 - cov);
             if a <= 0.0 {
                 continue;
             }
             let v = (cov / a * 255.0).round() as u8;
-            sp.px[((oy + y) * sp.w + ox + x) as usize] = [v, v, v, (a * 255.0).round() as u8];
+            sp.px[(y * sp.w + x) as usize] = [v, v, v, (a * 255.0).round() as u8];
         }
     }
 }

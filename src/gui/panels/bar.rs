@@ -141,14 +141,13 @@ pub fn glass(c: &mut Canvas, frame: R, radius: f32, hover: f32) {
 
 fn knob(c: &mut Canvas, cx: i32, cy: i32, bright: f32) {
     // 原版：直径约 6 像素的亮点（≈200）+ 约 6 像素的柔和光晕
-    for y in cy - 7..=cy + 7 {
-        for x in cx - 7..=cx + 7 {
-            let d = (((x - cx) as f32 + 0.5).powi(2) + ((y - cy) as f32 + 0.5).powi(2)).sqrt();
-            let core = (3.4 - d).clamp(0.0, 1.0);
-            let halo = (1.0 - d / 7.5).clamp(0.0, 1.0) * 0.33;
-            c.blend(x, y, Rgba::gray(205), (core.max(halo)) * bright);
-        }
-    }
+    let (fx, fy) = (cx as f32, cy as f32);
+    c.shade(R::new(cx - 7, cy - 7, 15, 15), false, |x, y| {
+        let d = ((x - fx).powi(2) + (y - fy).powi(2)).sqrt();
+        let core = (3.4 - d).clamp(0.0, 1.0);
+        let halo = (1.0 - d / 7.5).clamp(0.0, 1.0) * 0.33;
+        (Rgba::gray(205), (core.max(halo)) * bright)
+    });
 }
 
 pub fn fmt_time(t: f64) -> String {
@@ -170,13 +169,11 @@ pub fn paint(c: &mut Canvas, m: &BarModel) {
             let a = (32.0 * (idle + 0.5 * m.hover)) as u8;
             c.fill(COVER, Rgba(0x50, 0x50, 0x50, a));
             let (cx, cy) = (COVER.x as f32 + COVER.w as f32 / 2.0, COVER.y as f32 + COVER.h as f32 / 2.0);
-            for y in COVER.y..COVER.bottom() {
-                for x in COVER.x..COVER.right() {
-                    let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
-                    let ring = (2.8 - (d - 13.0).abs()).clamp(0.0, 1.0);
-                    c.blend(x, y, Rgba(0x9A, 0x9A, 0x9A, a), ring * 0.45);
-                }
-            }
+            c.shade(COVER, false, |x, y| {
+                let d = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
+                let ring = (2.8 - (d - 13.0).abs()).clamp(0.0, 1.0);
+                (Rgba(0x9A, 0x9A, 0x9A, a), ring * 0.45)
+            });
         }
     }
     // 标题与标语：浅色字 + 一圈暗色的光晕（玻璃几乎透明，放在什么背景上都看得清；悬停时变淡，被控制按钮覆盖）

@@ -4,7 +4,7 @@ use super::frame;
 use crate::gui::theme;
 use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::{Font, Hint};
-use crate::skin::{icons, skin};
+use crate::skin::{Art, icons, skin};
 
 pub const W: i32 = 304;
 pub const H: i32 = 225;
@@ -56,9 +56,9 @@ pub fn paint(c: &mut Canvas, m: &CoverModel) {
         let s = skin();
         let (x, y) = ((c.w - s.logo.w as i32) / 2, body.y + 54 + (c.h - H) / 2);
         let ink = theme::g(255);
-        c.sprite(&s.logo_arc, x, y, theme::focus());
-        c.sprite(&s.logo, x, y, ink);
-        c.sprite_reflect(&s.logo, x, y, 54, 16, 0.28, ink);
+        c.art(Art::LogoArc, x, y, theme::focus());
+        c.art(Art::Logo, x, y, ink);
+        c.art_reflect(Art::Logo, x, y, 54, 16, 0.28, ink);
         c.pop_clip();
         return;
     }
@@ -90,7 +90,7 @@ fn draw_cover(c: &mut Canvas, cover: Option<(&[u8], u32, u32)>, r: R) {
                 c.image(row, w, 1, R::new(r.x, r.bottom() + 1 + dy, r.w, 1), a);
             }
         }
-        None => c.sprite_scaled(&skin().cover, r, theme::g(70)),
+        None => c.art_scaled(Art::Cover, r, theme::g(70)),
     }
 }
 

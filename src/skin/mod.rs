@@ -67,11 +67,38 @@ pub struct Skin {
     pub logo_arc: Sprite,
     /// 没有封面时的默认图案（白色，绘制时变暗）
     pub cover: Sprite,
+    /// 画这套图时的缩放（1.0 = 逻辑像素；布局用的尺寸都按 1.0 的 skin() 算）
+    pub scale: f32,
 }
 
+/// 程序自己画的整张图
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Art {
+    Logo,
+    LogoArc,
+    Cover,
+}
+
+/// 逻辑像素的图（布局量尺寸用它）
 pub fn skin() -> &'static Skin {
     static S: OnceLock<Skin> = OnceLock::new();
-    S.get_or_init(art::build)
+    S.get_or_init(|| art::build_at(1.0))
+}
+
+/// 按缩放画好的图（每种缩放画一次，留着）
+pub fn skin_at(scale: f32) -> &'static Skin {
+    if scale == 1.0 {
+        return skin();
+    }
+    static M: std::sync::Mutex<Vec<(u32, &'static Skin)>> = std::sync::Mutex::new(Vec::new());
+    let key = (scale * 1000.0).round() as u32;
+    let mut m = M.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, s)) = m.iter().find(|(k, _)| *k == key) {
+        return s;
+    }
+    let s: &'static Skin = Box::leak(Box::new(art::build_at(scale)));
+    m.push((key, s));
+    s
 }
 
 impl Skin {
@@ -83,6 +110,22 @@ impl Skin {
             Sheet::Gui15 => &self.gui15,
             Sheet::Icon15 => &self.icon15,
         }
+    }
+
+    pub fn art(&self, a: Art) -> &Sprite {
+        match a {
+            Art::Logo => &self.logo,
+            Art::LogoArc => &self.logo_arc,
+            Art::Cover => &self.cover,
+        }
+    }
+
+    /// 格子在这套图集里的位置（实际像素；格子的边按缩放各自取整）
+    pub fn cell_rect(&self, c: Cell) -> crate::gui::R {
+        let n = c.sheet.cell() as f32;
+        let e = |i: u32| art::px(i as f32 * n, self.scale) as i32;
+        let (x0, y0) = (e(c.col), e(c.row));
+        crate::gui::R::new(x0, y0, e(c.col + 1) - x0, e(c.row + 1) - y0)
     }
 }
 

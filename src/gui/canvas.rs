@@ -49,16 +49,65 @@ impl R {
 }
 
 pub struct Canvas {
+    /// 逻辑尺寸（布局、命中测试都用它；原版 1:1 的像素）
     pub w: i32,
     pub h: i32,
-    /// 预乘 BGRA
+    /// 缩放比例（1.0 = 逻辑像素就是实际像素）
+    pub scale: f32,
+    /// 实际像素尺寸
+    pub pw: i32,
+    pub ph: i32,
+    /// 预乘 BGRA，pw × ph
     pub px: Vec<[u8; 4]>,
-    clip: Vec<R>,
+    /// 裁剪栈：(逻辑坐标, 实际像素)
+    clip: Vec<(R, R)>,
 }
 
+use super::scale::rnd;
+
 impl Canvas {
+    /// 按现在的界面缩放新建
     pub fn new(w: i32, h: i32) -> Canvas {
-        Canvas { w, h, px: vec![[0; 4]; (w.max(0) * h.max(0)) as usize], clip: Vec::new() }
+        Canvas::with_scale(w, h, super::scale::get())
+    }
+
+    pub fn with_scale(w: i32, h: i32, scale: f32) -> Canvas {
+        let (pw, ph) = (rnd(w.max(0) as f32 * scale), rnd(h.max(0) as f32 * scale));
+        Canvas { w, h, scale, pw, ph, px: vec![[0; 4]; (pw * ph) as usize], clip: Vec::new() }
+    }
+
+    /// 同样缩放的另一块画布
+    pub fn like(&self, w: i32, h: i32) -> Canvas {
+        Canvas::with_scale(w, h, self.scale)
+    }
+
+    /// 逻辑坐标 → 实际像素
+    #[inline]
+    pub fn tx(&self, v: i32) -> i32 {
+        if self.scale == 1.0 { v } else { rnd(v as f32 * self.scale) }
+    }
+
+    /// 逻辑矩形 → 实际像素（四条边各自取整：相邻的矩形之间没有缝）
+    pub fn tr(&self, r: R) -> R {
+        let (x0, y0) = (self.tx(r.x), self.tx(r.y));
+        R::new(x0, y0, self.tx(r.right()) - x0, self.tx(r.bottom()) - y0)
+    }
+
+    /// 实际像素 p 所在的逻辑像素（与 tr 的取整一致）
+    #[inline]
+    pub fn lp(&self, p: i32) -> i32 {
+        if self.scale == 1.0 { p } else { ((p as f32 + 0.5) / self.scale).ceil() as i32 - 1 }
+    }
+
+    /// 实际像素中心的逻辑坐标（浮点）
+    #[inline]
+    pub fn lf(&self, px: i32, py: i32) -> (f32, f32) {
+        ((px as f32 + 0.5) / self.scale, (py as f32 + 0.5) / self.scale)
+    }
+
+    /// 1 个逻辑像素宽的细线在实际像素里多宽（100% ~ 174% 是 1，175% ~ 274% 是 2 …）
+    pub fn line_px(&self) -> f32 {
+        (self.scale + 0.25).floor().max(1.0)
     }
 
     pub fn clear(&mut self) {
@@ -67,10 +116,10 @@ impl Canvas {
 
     /// 让完全透明的像素也能接收鼠标（alpha=1，肉眼不可见）：用于窗口边缘的调整区域
     pub fn hit_margin(&mut self, r: R) {
-        let r = r.inter(&R::new(0, 0, self.w, self.h));
+        let r = self.tr(r).inter(&R::new(0, 0, self.pw, self.ph));
         for y in r.y..r.bottom() {
             for x in r.x..r.right() {
-                let p = &mut self.px[(y * self.w + x) as usize];
+                let p = &mut self.px[(y * self.pw + x) as usize];
                 if p[3] == 0 {
                     *p = [0, 0, 0, 1];
                 }
@@ -78,12 +127,18 @@ impl Canvas {
         }
     }
 
+    /// 现在的裁剪范围（逻辑坐标）
     pub fn clip_rect(&self) -> R {
-        self.clip.last().copied().unwrap_or(R::new(0, 0, self.w, self.h))
+        self.clip.last().map_or(R::new(0, 0, self.w, self.h), |c| c.0)
+    }
+
+    /// 现在的裁剪范围（实际像素）
+    pub(crate) fn clip_px(&self) -> R {
+        self.clip.last().map_or(R::new(0, 0, self.pw, self.ph), |c| c.1)
     }
 
     pub fn push_clip(&mut self, r: R) {
-        let c = self.clip_rect().inter(&r);
+        let c = (self.clip_rect().inter(&r), self.clip_px().inter(&self.tr(r)));
         self.clip.push(c);
     }
 
@@ -91,14 +146,73 @@ impl Canvas {
         self.clip.pop();
     }
 
-    /// 以覆盖率 cov(0..=1) 混合一个像素（source-over）
+    /// 以覆盖率 cov(0..=1) 混合一个逻辑像素（source-over；不管裁剪，画布外的忽略）。
+    /// 缩放时盖住这个逻辑像素对应的所有实际像素（像素画的图案放大成方块）
     #[inline]
     pub fn blend(&mut self, x: i32, y: i32, c: Rgba, cov: f32) {
+        if self.scale == 1.0 {
+            if x >= 0 && y >= 0 && x < self.pw && y < self.ph {
+                self.blend_px(x, y, c, cov);
+            }
+            return;
+        }
+        let r = self.tr(R::new(x, y, 1, 1)).inter(&R::new(0, 0, self.pw, self.ph));
+        for py in r.y..r.bottom() {
+            for px in r.x..r.right() {
+                self.blend_px(px, py, c, cov);
+            }
+        }
+    }
+
+    /// 按实际像素一个个上色：f(像素中心的逻辑坐标) → (颜色, 覆盖率)；画逻辑矩形 r 盖住的实际像素。
+    /// clip = false 时不管裁剪（与 blend 相同）
+    pub fn shade(&mut self, r: R, clip: bool, mut f: impl FnMut(f32, f32) -> (Rgba, f32)) {
+        let lim = if clip { self.clip_px() } else { R::new(0, 0, self.pw, self.ph) };
+        let p = self.tr(r).inter(&lim);
+        for py in p.y..p.bottom() {
+            for px in p.x..p.right() {
+                let (lx, ly) = self.lf(px, py);
+                let (c, cov) = f(lx, ly);
+                if cov > 0.0 {
+                    self.blend_px(px, py, c, cov);
+                }
+            }
+        }
+    }
+
+    /// 把逻辑矩形 r 清成全透明
+    pub fn clear_rect(&mut self, r: R) {
+        let p = self.tr(r).inter(&R::new(0, 0, self.pw, self.ph));
+        for y in p.y..p.bottom() {
+            self.px[(y * self.pw + p.x) as usize..(y * self.pw + p.right()) as usize].fill([0; 4]);
+        }
+    }
+
+    /// 把 src（同样的缩放）原样复制到逻辑坐标 (x, y)，超出的部分不画
+    pub fn blit(&mut self, src: &Canvas, x: i32, y: i32) {
+        let (ox, oy) = (self.tx(x), self.tx(y));
+        for sy in 0..src.ph {
+            let dy = oy + sy;
+            if dy < 0 || dy >= self.ph {
+                continue;
+            }
+            for sx in 0..src.pw {
+                let dx = ox + sx;
+                if dx >= 0 && dx < self.pw {
+                    self.px[(dy * self.pw + dx) as usize] = src.px[(sy * src.pw + sx) as usize];
+                }
+            }
+        }
+    }
+
+    /// 以覆盖率 cov 混合一个实际像素（调用方保证在画布内）
+    #[inline]
+    pub(crate) fn blend_px(&mut self, x: i32, y: i32, c: Rgba, cov: f32) {
         let a = c.3 as f32 / 255.0 * cov;
         if a <= 0.0 {
             return;
         }
-        let i = (y * self.w + x) as usize;
+        let i = (y * self.pw + x) as usize;
         let d = &mut self.px[i];
         let inv = 1.0 - a;
         d[0] = (c.2 as f32 * a + d[0] as f32 * inv + 0.5) as u8;
@@ -108,52 +222,57 @@ impl Canvas {
     }
 
     pub fn fill(&mut self, r: R, c: Rgba) {
-        let r = r.inter(&self.clip_rect());
+        let r = self.tr(r).inter(&self.clip_px());
         for y in r.y..r.bottom() {
             for x in r.x..r.right() {
-                self.blend(x, y, c, 1.0);
+                self.blend_px(x, y, c, 1.0);
             }
         }
     }
 
     /// 纵向渐变
     pub fn vgrad(&mut self, r: R, top: Rgba, bottom: Rgba) {
-        let cr = r.inter(&self.clip_rect());
+        let r = self.tr(r);
+        let cr = r.inter(&self.clip_px());
         for y in cr.y..cr.bottom() {
             let t = if r.h > 1 { (y - r.y) as f32 / (r.h - 1) as f32 } else { 0.0 };
             let c = top.mix(bottom, t);
             for x in cr.x..cr.right() {
-                self.blend(x, y, c, 1.0);
+                self.blend_px(x, y, c, 1.0);
             }
         }
     }
 
-    /// 圆角矩形：fill 填充，border 1 像素描边（抗锯齿）
+    /// 圆角矩形：fill 填充，border 1 个逻辑像素的描边（抗锯齿；圆角半径是逻辑像素）
     pub fn round_rect(&mut self, r: R, radius: f32, fill: Option<Rgba>, border: Option<Rgba>) {
-        let cr = r.inter(&self.clip_rect());
+        let r = self.tr(r);
+        let cr = r.inter(&self.clip_px());
         let (hw, hh) = (r.w as f32 / 2.0, r.h as f32 / 2.0);
         let (mx, my) = (r.x as f32 + hw, r.y as f32 + hh);
-        let radius = radius.min(hw).min(hh);
+        let radius = (radius * self.scale).min(hw).min(hh);
+        // 描边宽度；在它里面再 1.5 像素才是完全填充的内部
+        let bw = self.line_px();
+        let deep = -0.5 - bw;
         for y in cr.y..cr.bottom() {
             let qy = (y as f32 + 0.5 - my).abs() - (hh - radius);
             for x in cr.x..cr.right() {
                 let qx = (x as f32 + 0.5 - mx).abs() - (hw - radius);
                 // 离边和圆角都超过 1.5 像素的内部：完全被填充、不碰描边，不用算距离（大窗口的底色快很多，结果一样）
-                if qx <= -1.5 && qy <= -1.5 {
+                if qx <= deep && qy <= deep {
                     if let Some(f) = fill {
-                        self.blend(x, y, f, 1.0);
+                        self.blend_px(x, y, f, 1.0);
                     }
                     continue;
                 }
                 // 圆角矩形的有符号距离（内部为负）
                 let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - radius;
                 let outer = (0.5 - sd).clamp(0.0, 1.0);
-                let inner = (-0.5 - sd).clamp(0.0, 1.0);
+                let inner = (0.5 - bw - sd).clamp(0.0, 1.0);
                 if let Some(f) = fill {
-                    self.blend(x, y, f, if border.is_some() { inner } else { outer });
+                    self.blend_px(x, y, f, if border.is_some() { inner } else { outer });
                 }
                 if let Some(b) = border {
-                    self.blend(x, y, b, outer - inner);
+                    self.blend_px(x, y, b, outer - inner);
                 }
             }
         }

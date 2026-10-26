@@ -319,18 +319,20 @@ impl App {
         let c = &mut m.bottom.canvas;
         strip(c, h1);
         if !lines.is_empty() {
-            let mut t = Canvas::new(W, H);
+            let mut t = c.like(W, H);
             t.push_clip(R::new(3, 3, W - 6, H - 6));
             for (x, s, cur) in &lines {
                 t.glow_text(s, FONT, *x, 3, Rgba::gray(if *cur { 253 } else { 190 }), HALO, 2);
             }
             t.pop_clip();
+            // 两头淡出（按每个实际像素所在的逻辑像素算）
             let fade = |x: i32| ((x.min(W - 1 - x) - FADE_FROM) as f32 / (FADE_TO - FADE_FROM) as f32).clamp(0.0, 1.0);
-            for y in 0..H {
-                for x in 0..W {
-                    let f = fade(x);
+            let k: Vec<f32> = (0..t.pw).map(|x| fade(t.lp(x))).collect();
+            for y in 0..t.ph {
+                for x in 0..t.pw {
+                    let f = k[x as usize];
                     if f < 1.0 {
-                        let p = &mut t.px[(y * W + x) as usize];
+                        let p = &mut t.px[(y * t.pw + x) as usize];
                         for v in p.iter_mut() {
                             *v = (*v as f32 * f) as u8;
                         }
