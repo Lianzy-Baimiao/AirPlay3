@@ -486,7 +486,7 @@ impl App {
         if self.settings_win.as_ref()?.anim.is_some_and(|a| a.dir == Dir::Out) {
             return ((WM_MOUSEFIRST..=WM_MOUSELAST).contains(&msg) || (WM_KEYFIRST..=WM_KEYLAST).contains(&msg)).then_some(LRESULT(0));
         }
-        let (x, y) = (super::wnd::lo(lp), super::wnd::hi(lp));
+        let (x, y) = (super::scale::lx(lp), super::scale::ly(lp));
         let items = self.settings_items();
         let hit = items.iter().position(|(it, _)| clickable(&it.w) && it.r.contains(x, y));
         match msg {

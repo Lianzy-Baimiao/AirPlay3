@@ -106,7 +106,7 @@ pub struct DeskLyric {
     /// 多行时的滚动位置（行号，换句时平滑趋近当前行）
     scroll: f32,
     /// 缓存：(文字, 字号) → 文字遮罩与描边遮罩
-    cache: Vec<(String, u16, Rc<Mask>, Rc<Mask>)>,
+    cache: Vec<(String, u32, Rc<Mask>, Rc<Mask>)>,
 }
 
 /// 拖动：移动窗口，或拖边调整大小（按下时的光标、窗口位置与大小）
@@ -167,8 +167,19 @@ fn resized(r: R, edges: u32, dx: i32, dy: i32, (min_h, max_h): (i32, i32)) -> R 
 }
 
 /// 文字遮罩与描边遮罩（缓存最近用过的 cap 条）
-fn masks(cache: &mut Vec<(String, u16, Rc<Mask>, Rc<Mask>)>, s: &str, size: f32, cap: usize) -> (Rc<Mask>, Rc<Mask>) {
-    let key = (size * 10.0) as u16;
+/// 描边宽度（实际像素；100% 时 2 像素）
+fn outline_px(scale: f32) -> i32 {
+    (2.0 * scale).round().max(1.0) as i32
+}
+
+/// 遮罩的实际像素尺寸 → 逻辑像素（布局用）
+fn logical(c: &Canvas, v: u32) -> i32 {
+    (v as f32 / c.scale).round() as i32
+}
+
+/// 一行字的遮罩和描边遮罩（按界面缩放 scale 画在实际像素上）
+fn masks(cache: &mut Vec<(String, u32, Rc<Mask>, Rc<Mask>)>, s: &str, size: f32, scale: f32, cap: usize) -> (Rc<Mask>, Rc<Mask>) {
+    let key = (size * 10.0) as u32 * 1000 + (scale * 100.0).round() as u32;
     if let Some(i) = cache.iter().position(|c| c.0 == s && c.1 == key) {
         // 移到末尾：一直在用的行不会被挤掉
         let e = cache.remove(i);
@@ -176,8 +187,8 @@ fn masks(cache: &mut Vec<(String, u16, Rc<Mask>, Rc<Mask>)>, s: &str, size: f32,
         cache.push(e);
         return r;
     }
-    let m = Rc::new(text::render(s, Font::px(size, true), Hint::Gray));
-    let o = Rc::new(super::draw::outline(&m, 2));
+    let m = Rc::new(text::render(s, Font::px(size, true).scaled(scale), Hint::Gray));
+    let o = Rc::new(super::draw::outline(&m, outline_px(scale)));
     while cache.len() >= cap.max(4) {
         cache.remove(0);
     }
@@ -277,7 +288,7 @@ impl App {
         // 保存的位置不在任何显示器上（拔掉了显示器）时回到默认位置
         let (bx, by) = self.bar_pos();
         let a = super::popup::work_area_at((bx + 100, by + 50));
-        let pos = pos.map(|p| (p[0], p[1])).filter(|&(x, y)| super::app::on_screen(R::new(x, y, w, h)));
+        let pos = pos.map(|p| (super::scale::to_logical(p[0]), super::scale::to_logical(p[1]))).filter(|&(x, y)| super::app::on_screen(R::new(x, y, w, h)));
         let (x, y) = pos.unwrap_or((a.x + (a.w - w) / 2, a.bottom() - h - 60));
         if self.desk.is_none() {
             let win = Popup::new(x, y, w, h, None, "AirPlay3 桌面歌词");
@@ -366,8 +377,8 @@ impl App {
             if r.text.is_empty() {
                 continue;
             }
-            let (m, o) = masks(&mut d.cache, &r.text, size, n * 2 + 6);
-            let y = top + (r.slot * lh as f32).round() as i32 + (lh - m.h as i32) / 2;
+            let (m, o) = masks(&mut d.cache, &r.text, size, c.scale, n * 2 + 6);
+            let y = top + (r.slot * lh as f32).round() as i32 + (lh - logical(c, m.h)) / 2;
             paint_row(c, &m, &o, r, y, sty);
         }
         c.pop_clip();
@@ -375,6 +386,8 @@ impl App {
         if !locked {
             c.hit_margin(R::new(0, 0, w, h));
         }
+        #[cfg(debug_assertions)]
+        d.win.canvas.dump("desk");
         d.win.present();
     }
 }
@@ -383,7 +396,7 @@ impl App {
 /// 比窗口宽的当前句随进度向左滚动，保证正在唱的位置看得见
 fn paint_row(c: &mut Canvas, m: &Mask, o: &Mask, r: &Row, y: i32, sty: &Style) {
     let w = c.w;
-    let tw = m.w as i32;
+    let tw = logical(c, m.w);
     let room = w - MARGIN * 2;
     let x = if tw > room {
         let p = r.progress.unwrap_or(0.0);
@@ -397,15 +410,17 @@ fn paint_row(c: &mut Canvas, m: &Mask, o: &Mask, r: &Row, y: i32, sty: &Style) {
     };
     let a = (r.alpha.clamp(0.0, 1.0) * 255.0) as u8;
     c.push_clip(R::new(MARGIN - 4, 0, room + 8, c.h));
-    c.mask(o, x - 2, y - 2, Rgba(0, 0, 0, (200.0 * r.alpha.clamp(0.0, 1.0)) as u8));
+    // 描边遮罩比字的遮罩四周各大 outline_px 个实际像素
+    let (k, sh) = (outline_px(c.scale), Rgba(0, 0, 0, (200.0 * r.alpha.clamp(0.0, 1.0)) as u8));
+    c.mask_px(o, c.tx(x) - k, c.tx(y) - k, sh, sh);
     let (u0, u1) = (sty.unplayed.0.alpha(a), sty.unplayed.1.alpha(a));
     match r.progress {
         Some(p) => {
             let split = x + (tw as f32 * p) as i32;
-            c.push_clip(R::new(x - 4, y - 4, split - x + 4, m.h as i32 + 8));
+            c.push_clip(R::new(x - 4, y - 4, split - x + 4, logical(c, m.h) + 8));
             c.mask_grad(m, x, y, sty.played.0, sty.played.1);
             c.pop_clip();
-            c.push_clip(R::new(split, y - 4, w, m.h as i32 + 8));
+            c.push_clip(R::new(split, y - 4, w, logical(c, m.h) + 8));
             c.mask_grad(m, x, y, u0, u1);
             c.pop_clip();
         }
@@ -471,7 +486,7 @@ impl App {
         if self.desk.as_ref()?.win.hwnd != hwnd {
             return None;
         }
-        let (x, y) = (super::wnd::lo(lp), super::wnd::hi(lp));
+        let (x, y) = (super::scale::lx(lp), super::scale::ly(lp));
         match msg {
             WM_SETCURSOR => {
                 let d = self.desk.as_ref()?;
@@ -556,7 +571,8 @@ impl App {
                 {
                     let mut g = self.player.core.lock();
                     let s = &mut g.settings.desk_lyric;
-                    s.pos = Some([pos.0, pos.1]);
+                    // 位置存实际像素（与播放条相同）
+                    s.pos = Some([super::scale::to_px(pos.0), super::scale::to_px(pos.1)]);
                     if matches!(drag, Drag::Resize { .. }) {
                         (s.width, s.lines) = (Some(w), n);
                     }

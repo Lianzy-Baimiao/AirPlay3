@@ -45,7 +45,7 @@ impl Popup {
     pub fn move_to(&mut self, x: i32, y: i32) {
         self.pos = (x, y);
         unsafe {
-            let _ = SetWindowPos(self.hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            let _ = SetWindowPos(self.hwnd, None, super::scale::to_px(x), super::scale::to_px(y), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
 
@@ -62,30 +62,27 @@ impl Popup {
     }
 }
 
-/// 某个屏幕点所在显示器的整个屏幕范围（含任务栏）
-pub fn monitor_at((x, y): (i32, i32)) -> super::canvas::R {
+/// 某个屏幕点所在显示器的整个屏幕范围（含任务栏；点和结果都是逻辑像素）
+pub fn monitor_at(p: (i32, i32)) -> super::canvas::R {
+    monitor_rect(p, false)
+}
+
+/// 显示器的整个范围或工作区（逻辑像素）
+fn monitor_rect((x, y): (i32, i32), work: bool) -> super::canvas::R {
+    use super::scale::{rect_logical, to_px};
     use windows::Win32::Graphics::Gdi::*;
     unsafe {
-        let m = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST);
+        let m = MonitorFromPoint(POINT { x: to_px(x), y: to_px(y) }, MONITOR_DEFAULTTONEAREST);
         let mut mi = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
         if GetMonitorInfoW(m, &mut mi).as_bool() {
-            let r = mi.rcMonitor;
-            return super::canvas::R::new(r.left, r.top, r.right - r.left, r.bottom - r.top);
+            let r = if work { mi.rcWork } else { mi.rcMonitor };
+            return rect_logical(super::canvas::R::new(r.left, r.top, r.right - r.left, r.bottom - r.top));
         }
-        super::canvas::R::new(0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN))
+        rect_logical(super::canvas::R::new(0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)))
     }
 }
 
-/// 某个屏幕点所在显示器的工作区（多显示器时不能只用主屏尺寸）
-pub fn work_area_at((x, y): (i32, i32)) -> super::canvas::R {
-    use windows::Win32::Graphics::Gdi::*;
-    unsafe {
-        let m = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST);
-        let mut mi = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
-        if GetMonitorInfoW(m, &mut mi).as_bool() {
-            let r = mi.rcWork;
-            return super::canvas::R::new(r.left, r.top, r.right - r.left, r.bottom - r.top);
-        }
-        super::canvas::R::new(0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN))
-    }
+/// 某个屏幕点所在显示器的工作区（多显示器时不能只用主屏尺寸；逻辑像素）
+pub fn work_area_at(p: (i32, i32)) -> super::canvas::R {
+    monitor_rect(p, true)
 }

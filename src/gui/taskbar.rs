@@ -249,7 +249,7 @@ impl App {
         match msg {
             WM_LBUTTONDOWN => {
                 // 按住拖动：左右移动整块歌词，上下移动文字
-                let cur = super::resize::cursor();
+                let cur = super::scale::cursor_px();
                 let off = {
                     let g = self.player.core.lock();
                     (g.settings.taskbar_lyric.offset, g.settings.taskbar_lyric.offset_y)
@@ -259,7 +259,7 @@ impl App {
             }
             WM_MOUSEMOVE => {
                 let ((x0, y0), (ox, oy)) = self.taskbar.as_ref()?.drag?;
-                let (cx, cy) = super::resize::cursor();
+                let (cx, cy) = super::scale::cursor_px();
                 // 拖过头时偏移停在边界上，往回拖立刻跟手
                 let x_range = self.taskbar_layout().map_or((-3000, 3000), |l| l.x_range);
                 let y_range = self.taskbar.as_ref()?.y_range;

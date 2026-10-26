@@ -137,24 +137,27 @@ impl UiState {
     }
 }
 
-/// 启动位置：上次保存的位置（在屏幕内时），否则居中
-pub fn initial_origin(p: &Player) -> (i32, i32) {
-    let saved = p.core.lock().settings.window.main;
-    if let Some(r) = saved {
-        // 播放条左上部能被拖到即可（吸附到屏幕边时外框会在 -1）
-        let (x, y) = (r.x as i32, r.y as i32);
-        if crate::platform::window::point_on_screen(x + 40, y + 20) {
-            return (x, y);
-        }
-    }
-    default_origin()
+/// 上次保存的播放条位置（实际像素；还在某个显示器上时）
+pub fn saved_origin_px(p: &Player) -> Option<(i32, i32)> {
+    let r = p.core.lock().settings.window.main?;
+    // 播放条左上部能被拖到即可（吸附到屏幕边时外框会在 -1）
+    let (x, y) = (r.x as i32, r.y as i32);
+    crate::platform::window::point_on_screen(x + 40, y + 20).then_some((x, y))
 }
 
-/// 默认位置：主显示器中央（按默认布局 625×431 居中）
+/// 启动位置（逻辑像素）：上次保存的位置（在屏幕内时），否则居中
+pub fn initial_origin(p: &Player) -> (i32, i32) {
+    match saved_origin_px(p) {
+        Some((x, y)) => (super::scale::to_logical(x), super::scale::to_logical(y)),
+        None => default_origin(),
+    }
+}
+
+/// 默认位置：主显示器中央（按默认布局 625×431 居中；逻辑像素）
 pub fn default_origin() -> (i32, i32) {
     use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
     let (sw, sh) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
-    ((sw - 625) / 2, (sh - 431) / 2)
+    ((super::scale::to_logical(sw) - 625) / 2, (super::scale::to_logical(sh) - 431) / 2)
 }
 
 pub fn approach(v: &mut f32, target: f32, step: f32) -> bool {

@@ -3,7 +3,7 @@
 //! - 拖面板（标题条 / 空白处）：只移动这个面板（脱离），靠近其它面板或屏幕边 12 像素内自动吸附；
 //! - 音乐列表、歌词图片可从左、右、下边及左下、右下角调整大小，被拖动的边自动对齐到附近的边。
 
-use windows::Win32::Foundation::{POINT, RECT};
+use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
@@ -49,7 +49,7 @@ pub(super) fn taskbar_rect() -> Option<R> {
         let h = FindWindowW(w!("Shell_TrayWnd"), None).ok()?;
         let mut r = RECT::default();
         GetWindowRect(h, &mut r).ok()?;
-        Some(R::new(r.left, r.top, r.right - r.left, r.bottom - r.top))
+        Some(super::scale::rect_logical(R::new(r.left, r.top, r.right - r.left, r.bottom - r.top)))
     }
 }
 
@@ -213,9 +213,10 @@ impl App {
         self.dirty(pane);
     }
 
-    /// 结束移动 / 调整：保存布局
+    /// 结束移动 / 调整：保存布局（拖动时显示缩放变了的话现在换）
     pub fn end_drag(&mut self) {
         self.save_layout();
+        self.apply_pending_zoom();
     }
 
     /// 仅调试构建：模拟拖动，走与鼠标拖动相同的代码，用于自测吸附。
@@ -313,10 +314,7 @@ mod tests {
 
 pub type CursorId = windows::core::PCWSTR;
 
+/// 鼠标在屏幕上的位置（逻辑像素）
 pub fn cursor() -> (i32, i32) {
-    let mut p = POINT::default();
-    unsafe {
-        let _ = GetCursorPos(&mut p);
-    }
-    (p.x, p.y)
+    super::scale::cursor()
 }

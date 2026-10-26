@@ -292,6 +292,11 @@ impl App {
     }
 
     pub fn wheel(&mut self, pane: Pane, x: i32, y: i32, delta: i32) {
+        // Ctrl + 滚轮：界面缩放（一次一档）
+        if unsafe { GetKeyState(VK_CONTROL.0 as i32) } < 0 {
+            self.set_zoom(Some(super::menu::zoom_step(super::scale::percent(), delta > 0)));
+            return;
+        }
         match pane {
             // 左边一栏放不下时，在它上面滚动的是这一栏
             Pane::List if self.list_layout().tabs.contains(x, y) && self.max_tab_scroll() > 0 => {

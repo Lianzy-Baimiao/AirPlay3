@@ -150,7 +150,7 @@ impl App {
         if self.cfgdir.as_ref()?.win.hwnd != hwnd {
             return None;
         }
-        let (x, y) = (super::wnd::lo(lp), super::wnd::hi(lp));
+        let (x, y) = (super::scale::lx(lp), super::scale::ly(lp));
         let w = self.cfgdir.as_mut()?;
         let (hit, path_hot) = cp::hit(x, y, w.can_ok);
         match msg {

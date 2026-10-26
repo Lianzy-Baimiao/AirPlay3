@@ -70,7 +70,7 @@ pub fn set_frost(hwnd: HWND, on: bool) {
     }
 }
 
-/// 创建分层弹出窗口。`taskbar` 为 true 时出现在任务栏（主窗口），否则为工具窗口。
+/// 创建分层弹出窗口（位置、尺寸是逻辑像素）。`taskbar` 为 true 时出现在任务栏（主窗口），否则为工具窗口。
 /// 「透明雾化」打开时新窗口也跟着雾化（桌面歌词自己再关掉）
 pub fn create(title: &str, x: i32, y: i32, w: i32, h: i32, taskbar: bool, owner: Option<HWND>) -> HWND {
     let t: Vec<u16> = title.encode_utf16().chain([0]).collect();
@@ -84,10 +84,10 @@ pub fn create(title: &str, x: i32, y: i32, w: i32, h: i32, taskbar: bool, owner:
             CLASS,
             PCWSTR(t.as_ptr()),
             WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU,
-            x,
-            y,
-            w,
-            h,
+            super::scale::to_px(x),
+            super::scale::to_px(y),
+            super::scale::to_px(w),
+            super::scale::to_px(h),
             owner,
             None,
             GetModuleHandleW(None).ok().map(|h| h.into()),
@@ -134,12 +134,12 @@ impl Surface {
         }
     }
 
-    /// 把画布内容提交到分层窗口（位置 x, y；尺寸为画布尺寸）
+    /// 把画布内容提交到分层窗口（位置 x, y 是逻辑像素；尺寸为画布的实际像素）
     pub fn present(&mut self, hwnd: HWND, c: &Canvas, x: i32, y: i32) {
-        self.present_at(hwnd, c, Some((x, y)));
+        self.present_at(hwnd, c, Some((super::scale::to_px(x), super::scale::to_px(y))));
     }
 
-    /// pos 为 None 时不改变窗口位置（子窗口的位置由调用方用 SetWindowPos 按父窗口坐标设置）
+    /// pos 是实际像素；为 None 时不改变窗口位置（子窗口的位置由调用方用 SetWindowPos 按父窗口坐标设置）
     pub fn present_at(&mut self, hwnd: HWND, c: &Canvas, pos: Option<(i32, i32)>) {
         if self.w != c.pw || self.h != c.ph {
             *self = Surface::new(c.pw, c.ph);

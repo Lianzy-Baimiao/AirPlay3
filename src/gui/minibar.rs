@@ -89,7 +89,7 @@ fn taskbars() -> Vec<R> {
         let mut push = |h: HWND| {
             let mut r = RECT::default();
             if GetWindowRect(h, &mut r).is_ok() {
-                v.push(R::new(r.left, r.top, r.right - r.left, r.bottom - r.top));
+                v.push(super::scale::rect_logical(R::new(r.left, r.top, r.right - r.left, r.bottom - r.top)));
             }
         };
         if let Ok(h) = FindWindowW(w!("Shell_TrayWnd"), None) {
@@ -433,7 +433,7 @@ impl App {
     pub fn minibar_msg(&mut self, hwnd: HWND, msg: u32, _wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
         let m = self.minibar.as_mut()?;
         let which = if m.top.hwnd == hwnd { 0 } else if m.bottom.hwnd == hwnd { 1 } else { return None };
-        let (x, y) = (super::wnd::lo(lp), super::wnd::hi(lp));
+        let (x, y) = (super::scale::lx(lp), super::scale::ly(lp));
         match msg {
             WM_MOUSEMOVE => {
                 if let Some(d) = m.drag {
@@ -482,6 +482,7 @@ impl App {
                 unsafe {
                     let _ = ReleaseCapture();
                 }
+                self.apply_pending_zoom();
             }
             WM_LBUTTONDBLCLK => self.toggle_minibar(),
             // Alt+F4 等：与主界面一样（完全退出，或开了「点关闭按钮缩到托盘」时缩到托盘）

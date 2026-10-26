@@ -20,6 +20,7 @@ pub mod panels;
 mod popup;
 mod resize;
 pub mod scale;
+mod zoom;
 mod settings_layout;
 mod settings_model;
 mod snap;

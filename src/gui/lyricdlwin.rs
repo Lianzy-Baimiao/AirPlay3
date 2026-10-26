@@ -286,7 +286,7 @@ impl App {
         if self.search.as_ref()?.win.hwnd != hwnd {
             return None;
         }
-        let (x, y) = (super::wnd::lo(lp), super::wnd::hi(lp));
+        let (x, y) = (super::scale::lx(lp), super::scale::ly(lp));
         let info = self.info_found();
         let s = self.search.as_mut()?;
         let row_at = |s: &LyricSearch, y: i32| {

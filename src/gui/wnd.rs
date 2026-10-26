@@ -6,6 +6,7 @@ use windows::Win32::UI::Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDR
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::app::{APP, App, Pane, TIMER_ANIM, WM_APP_ASYNC, WM_APP_REPAINT, WM_APP_TRAY};
+use super::scale;
 
 /// 调试构建的自测：等有歌曲后打开「下载歌词」窗口
 #[cfg(debug_assertions)]
@@ -75,6 +76,8 @@ pub fn after_create(start_hidden: bool) {
         for (i, p) in [Pane::Cover, Pane::Eq, Pane::List].into_iter().enumerate() {
             app.win(p).visible = [s.show_cover, s.show_eq, s.show_list][i];
         }
+        // 上次是在小一点的缩放下存的位置：放大后超出屏幕的话整组挪回来
+        app.keep_layout_on_screen();
         super::tray::add(bar);
         app.register_hotkeys();
         app.apply_topmost();
@@ -133,6 +136,21 @@ impl App {
             self.sync_taskbar_lyric();
             return Some(LRESULT(0));
         }
+        // 播放条（迷你条模式下是迷你条的控制条）到了另一个显示缩放的显示器上，或系统里改了显示缩放：
+        // 跟随系统时按新缩放重画（不用系统建议的窗口大小，窗口大小由画布决定）
+        if msg == WM_DPICHANGED {
+            let lead = self.minibar.as_ref().map_or(self.bar_hwnd(), |m| m.top.hwnd);
+            if hwnd == lead {
+                self.on_dpi_changed(((wp.0 >> 16) & 0xFFFF) as u32);
+            }
+            return Some(LRESULT(0));
+        }
+        // 仅调试构建：自测时模拟显示缩放变了（WM_DPICHANGED 带指针，不能跨进程投递）；wParam = 新的 DPI
+        #[cfg(debug_assertions)]
+        if msg == WM_APP + 9 {
+            self.on_dpi_changed(wp.0 as u32);
+            return Some(LRESULT(0));
+        }
         if let Some(r) = self.minibar_msg(hwnd, msg, wp, lp) {
             return Some(r);
         }
@@ -154,22 +172,22 @@ impl App {
             WM_APP_TRAY => self.on_tray(lp.0 as u32),
             WM_MOUSEMOVE => {
                 self.track_leave(hwnd);
-                self.mouse_move(pane, lo(lp), hi(lp));
+                self.mouse_move(pane, scale::lx(lp), scale::ly(lp));
             }
             WM_MOUSELEAVE => self.mouse_leave(pane),
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
                 unsafe { SetCapture(hwnd) };
                 let ctrl = wp.0 & 0x0008 != 0;
                 let shift = wp.0 & 0x0004 != 0;
-                self.mouse_down(pane, lo(lp), hi(lp), msg == WM_LBUTTONDBLCLK, ctrl, shift);
+                self.mouse_down(pane, scale::lx(lp), scale::ly(lp), msg == WM_LBUTTONDBLCLK, ctrl, shift);
             }
             WM_LBUTTONUP => {
                 unsafe {
                     let _ = ReleaseCapture();
                 }
-                self.mouse_up(pane, lo(lp), hi(lp));
+                self.mouse_up(pane, scale::lx(lp), scale::ly(lp));
             }
-            WM_RBUTTONUP => self.right_click(pane, lo(lp), hi(lp)),
+            WM_RBUTTONUP => self.right_click(pane, scale::lx(lp), scale::ly(lp)),
             WM_MOUSEWHEEL => {
                 // 全局鼠标滚轮关着时，只有本程序在前台才响应滚轮
                 if !self.player.core.lock().settings.general.global_wheel && !super::window::foreground_is_ours() {
@@ -180,7 +198,7 @@ impl App {
                 unsafe {
                     let _ = windows::Win32::Graphics::Gdi::ScreenToClient(hwnd, &mut pt);
                 }
-                self.wheel(pane, pt.x, pt.y, delta);
+                self.wheel(pane, scale::point_logical(pt.x), scale::point_logical(pt.y), delta);
             }
             WM_CHAR => self.on_char(wp.0 as u32),
             WM_KEYDOWN => self.on_key(VIRTUAL_KEY(wp.0 as u16)),
@@ -208,11 +226,11 @@ impl App {
                 return Some(LRESULT(1));
             }
             WM_SETCURSOR => {
-                let (cx, cy) = super::resize::cursor();
+                let (cx, cy) = scale::cursor_px();
                 let mut pt = POINT { x: cx, y: cy };
                 unsafe {
                     let _ = windows::Win32::Graphics::Gdi::ScreenToClient(hwnd, &mut pt);
-                    SetCursor(LoadCursorW(None, self.cursor_for(pane, pt.x, pt.y)).ok());
+                    SetCursor(LoadCursorW(None, self.cursor_for(pane, scale::point_logical(pt.x), scale::point_logical(pt.y))).ok());
                 }
                 return Some(LRESULT(1));
             }

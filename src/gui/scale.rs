@@ -8,6 +8,8 @@ pub const MAX: u32 = 300;
 pub const STEP: u32 = 25;
 
 static PERCENT: AtomicU32 = AtomicU32::new(100);
+/// 系统的显示缩放（播放条所在显示器的；启动时取一次，WM_DPICHANGED 时更新）
+static SYSTEM: AtomicU32 = AtomicU32::new(0);
 
 /// 现在的缩放比例（1.0 = 100%）
 pub fn get() -> f32 {
@@ -42,20 +44,68 @@ pub fn point_logical(p: i32) -> i32 {
     ((p as f32 + 0.5) / get()).ceil() as i32 - 1
 }
 
-/// 系统显示缩放（主显示器的 DPI，100% = 96）
-pub fn system_percent() -> u32 {
-    use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTOPRIMARY, MonitorFromPoint};
+/// 屏幕上某一点（实际像素）所在显示器的显示缩放（DPI，100% = 96）
+pub fn monitor_percent(x: i32, y: i32) -> u32 {
+    use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromPoint};
     use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
     unsafe {
-        let m = MonitorFromPoint(windows::Win32::Foundation::POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
-        let (mut x, mut y) = (96u32, 96u32);
-        if GetDpiForMonitor(m, MDT_EFFECTIVE_DPI, &mut x, &mut y).is_ok() && x > 0 { (x * 100 + 48) / 96 } else { 100 }
+        let m = MonitorFromPoint(windows::Win32::Foundation::POINT { x, y }, MONITOR_DEFAULTTONEAREST);
+        let (mut dx, mut dy) = (96u32, 96u32);
+        if GetDpiForMonitor(m, MDT_EFFECTIVE_DPI, &mut dx, &mut dy).is_ok() && dx > 0 { (dx * 100 + 48) / 96 } else { 100 }
     }
+}
+
+/// 现在的系统显示缩放（播放条所在显示器）
+pub fn system() -> u32 {
+    match SYSTEM.load(Ordering::Relaxed) {
+        0 => monitor_percent(0, 0),
+        p => p,
+    }
+}
+
+pub fn set_system(p: u32) {
+    SYSTEM.store(p, Ordering::Relaxed);
 }
 
 /// 设置里的缩放（None = 跟随系统）换成实际用的百分比
 pub fn effective(setting: Option<u32>) -> u32 {
-    setting.unwrap_or_else(system_percent).clamp(MIN, MAX)
+    setting.unwrap_or_else(system).clamp(MIN, MAX)
+}
+
+/// 鼠标在屏幕上的位置（实际像素）
+pub fn cursor_px() -> (i32, i32) {
+    let mut p = windows::Win32::Foundation::POINT::default();
+    unsafe {
+        let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut p);
+    }
+    (p.x, p.y)
+}
+
+/// 鼠标在屏幕上的位置（逻辑像素）
+pub fn cursor() -> (i32, i32) {
+    let (x, y) = cursor_px();
+    (point_logical(x), point_logical(y))
+}
+
+/// 屏幕上的矩形（实际像素）→ 逻辑像素（四条边各自换算）
+pub fn rect_logical(r: super::canvas::R) -> super::canvas::R {
+    let (x0, y0) = (to_logical(r.x), to_logical(r.y));
+    super::canvas::R::new(x0, y0, to_logical(r.right()) - x0, to_logical(r.bottom()) - y0)
+}
+
+/// 逻辑矩形 → 屏幕上的实际像素
+pub fn rect_px(r: super::canvas::R) -> super::canvas::R {
+    let (x0, y0) = (to_px(r.x), to_px(r.y));
+    super::canvas::R::new(x0, y0, to_px(r.right()) - x0, to_px(r.bottom()) - y0)
+}
+
+/// 鼠标消息里的客户区坐标（实际像素）→ 所在的逻辑像素
+pub fn lx(lp: windows::Win32::Foundation::LPARAM) -> i32 {
+    point_logical(super::wnd::lo(lp))
+}
+
+pub fn ly(lp: windows::Win32::Foundation::LPARAM) -> i32 {
+    point_logical(super::wnd::hi(lp))
 }
 
 #[cfg(test)]

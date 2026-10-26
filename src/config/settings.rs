@@ -465,11 +465,14 @@ pub struct WindowState {
     pub bar_w: i32,
     /// 歌词图片、均衡器、音乐列表相对播放条左上角的位置（面板可以拖开）；没有时用默认布局
     pub pane_offsets: Option<[[i32; 2]; 3]>,
+    /// 界面缩放（百分比，100 ~ 300，25 一档）；None = 跟随系统的显示缩放
+    pub zoom: Option<u32>,
 }
 
 impl Default for WindowState {
     fn default() -> Self {
         Self {
+            zoom: None,
             main: None,
             maximized: false,
             compact: false,

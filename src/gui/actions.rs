@@ -26,11 +26,7 @@ pub enum AsyncMsg {
 }
 
 fn cursor() -> (i32, i32) {
-    let mut p = POINT::default();
-    unsafe {
-        let _ = GetCursorPos(&mut p);
-    }
-    (p.x, p.y)
+    super::scale::cursor()
 }
 
 impl App {
@@ -56,6 +52,8 @@ impl App {
             check("始终置顶", None, on_top, Act::ToggleTopmost),
             item("配置", Act::OpenConfig),
             item("恢复默认位置", Act::ResetPosition),
+            Item::Sep,
+            Item::Zoom,
             Item::Sep,
             item("退出", Act::Quit),
         ]
@@ -97,6 +95,8 @@ impl App {
             check("始终置顶", None, on_top, Act::ToggleTopmost),
             item("配置", Act::OpenConfig),
             item("恢复默认位置", Act::ResetPosition),
+            Item::Sep,
+            Item::Zoom,
             Item::Sep,
             item("退出", Act::Quit),
         ]);
@@ -151,7 +151,7 @@ impl App {
     /// 每帧检查：在菜单外按下鼠标、或前台切到别的程序时关闭菜单（不依赖 WM_ACTIVATE，避免刚弹出就被关掉）
     pub fn poll_menu(&mut self) {
         let Some(m) = self.menu.as_ref() else { return };
-        if m.opened.elapsed() < std::time::Duration::from_millis(150) {
+        if m.opened.elapsed() < std::time::Duration::from_millis(150) || m.zoom_drag.is_some() {
             return;
         }
         use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON};
@@ -485,13 +485,60 @@ impl App {
         if m.hwnd != hwnd && !is_child {
             return None;
         }
-        let (x, y) = (super::wnd::lo(lp), super::wnd::hi(lp));
+        let (x, y) = (super::scale::lx(lp), super::scale::ly(lp));
         match msg {
+            // 拖缩放滑块：只移动滑块，松手才换缩放
+            WM_MOUSEMOVE if !is_child && m.zoom_drag.is_some() => m.zoom_drag_to(x),
+            // 连着点 − / + 时第二下是双击消息
+            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK if !is_child => {
+                use super::menu::ZoomHit;
+                let cur = super::scale::percent();
+                let hit = m.zoom_hit(x, y);
+                m.zoom_press = hit.is_some();
+                let step = match hit {
+                    Some(ZoomHit::Minus) => super::menu::zoom_step(cur, false),
+                    Some(ZoomHit::Plus) => super::menu::zoom_step(cur, true),
+                    Some(ZoomHit::Track(_)) => {
+                        m.zoom_drag_to(x);
+                        unsafe { windows::Win32::UI::Input::KeyboardAndMouse::SetCapture(hwnd) };
+                        return Some(LRESULT(0));
+                    }
+                    None => return None,
+                };
+                self.set_zoom(Some(step));
+            }
+            WM_LBUTTONUP if !is_child && m.zoom_press && m.zoom_drag.is_none() => m.zoom_press = false,
+            WM_LBUTTONUP if !is_child && m.zoom_drag.is_some() => {
+                m.zoom_press = false;
+                let p = m.zoom_drag.take();
+                unsafe {
+                    let _ = windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture();
+                }
+                match p {
+                    Some(p) if p != super::scale::percent() => self.set_zoom(Some(p)),
+                    _ => {
+                        if let Some(m) = self.menu.as_mut() {
+                            m.present();
+                        }
+                    }
+                }
+            }
+            // 滚轮在缩放那一行上：一次一档
+            WM_MOUSEWHEEL if !is_child => {
+                let (cx, cy) = cursor();
+                let (rx, ry) = (cx - m.pos.0, cy - m.pos.1);
+                if m.zoom_hit(rx, ry).is_some() {
+                    let up = ((wp.0 >> 16) & 0xFFFF) as i16 > 0;
+                    self.set_zoom(Some(super::menu::zoom_step(super::scale::percent(), up)));
+                }
+            }
             WM_MOUSEMOVE => {
                 let target = if is_child { m.child.as_deref_mut().unwrap() } else { &mut *m };
                 let row = target.row_at(y);
-                if row != target.hover {
+                let zh = target.zoom_hit(x, y).filter(|h| !matches!(h, super::menu::ZoomHit::Track(_)));
+                if row != target.hover || zh != target.zoom_hover {
                     target.hover = row;
+                    target.zoom_hover = zh;
                     target.present();
                 }
                 if !is_child {

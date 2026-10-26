@@ -135,7 +135,7 @@ impl App {
         }
         w.pos = (x, y);
         unsafe {
-            let _ = SetWindowPos(w.hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            let _ = SetWindowPos(w.hwnd, None, super::scale::to_px(x), super::scale::to_px(y), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
 
@@ -148,7 +148,8 @@ impl App {
         });
         let mut g = self.player.core.lock();
         let w = &mut g.settings.window;
-        w.main = Some(crate::config::WinRect { x: bx as f32, y: by as f32, w: 625.0, h: 431.0 });
+        // 播放条的位置存实际像素（换了缩放也还在屏幕上原来的地方）；面板相对它的位置、尺寸是逻辑像素
+        w.main = Some(crate::config::WinRect { x: super::scale::to_px(bx) as f32, y: super::scale::to_px(by) as f32, w: 625.0, h: 431.0 });
         w.list_size = [self.sizes.list.0, self.sizes.list.1];
         (w.cover_w, w.cover_h) = self.sizes.cover;
         w.bar_w = self.sizes.bar_w;
@@ -279,15 +280,16 @@ impl App {
         for (_, w) in &mut self.wins {
             w.pos = (w.pos.0 + dx, w.pos.1 + dy);
             unsafe {
-                let _ = SetWindowPos(w.hwnd, None, w.pos.0, w.pos.1, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                let _ = SetWindowPos(w.hwnd, None, super::scale::to_px(w.pos.0), super::scale::to_px(w.pos.1), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
         }
     }
 }
 
-/// 矩形是否有一部分在某个显示器上（拔掉显示器后，留在那边的面板回到默认位置）
+/// 矩形（逻辑像素）是否有一部分在某个显示器上（拔掉显示器后，留在那边的面板回到默认位置）
 pub(super) fn on_screen(r: R) -> bool {
     use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromRect};
+    let r = super::scale::rect_px(r);
     let rc = RECT { left: r.x, top: r.y, right: r.right(), bottom: r.bottom() };
     !unsafe { MonitorFromRect(&rc, MONITOR_DEFAULTTONULL) }.is_invalid()
 }
@@ -301,11 +303,23 @@ pub fn post_repaint(bar: isize) {
 
 /// 创建窗口并运行消息循环（阻塞直到退出）。`bar_slot` 用于让后台线程投递重绘消息。
 pub fn run(player: Player, now: SharedNow, cmds: Sender<Command>, start_hidden: bool, bar_slot: &std::sync::atomic::AtomicIsize) {
-    // 与原版一致：声明 DPI 感知，按 1:1 像素绘制（图标不缩放）
+    // 按显示器声明 DPI 感知（系统不再把窗口拉伸变糊，换了显示缩放会发 WM_DPICHANGED），由程序自己按缩放画：
+    // 跟随播放条所在显示器的显示缩放，或用户选的百分比
     unsafe {
         use windows::Win32::UI::HiDpi::*;
-        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
+    let (sx, sy) = super::state::saved_origin_px(&player).unwrap_or((0, 0));
+    super::scale::set_system(super::scale::monitor_percent(sx + 40, sy + 20));
+    #[allow(unused_mut)]
+    let mut zoom = player.core.lock().settings.window.zoom;
+    // 仅调试构建：AIRPLAY3_ZOOM=<百分比> 时用这个缩放（自测）
+    #[cfg(debug_assertions)]
+    if let Some(z) = std::env::var("AIRPLAY3_ZOOM").ok().and_then(|v| v.parse().ok()) {
+        zoom = Some(z);
+    }
+    super::scale::set_percent(super::scale::effective(zoom));
+    log::info!("界面缩放 {}%（系统 {}%）", super::scale::percent(), super::scale::system());
     window::register(Some(super::wnd::wndproc));
     let (x, y) = super::state::initial_origin(&player);
     let (sizes, saved) = {
