@@ -73,6 +73,12 @@ pub fn set_frost(hwnd: HWND, on: bool) {
 /// 创建分层弹出窗口（位置、尺寸是逻辑像素）。`taskbar` 为 true 时出现在任务栏（主窗口），否则为工具窗口。
 /// 「透明雾化」打开时新窗口也跟着雾化（桌面歌词自己再关掉）
 pub fn create(title: &str, x: i32, y: i32, w: i32, h: i32, taskbar: bool, owner: Option<HWND>) -> HWND {
+    use super::scale::to_px;
+    create_px(title, to_px(x), to_px(y), to_px(w), to_px(h), taskbar, owner)
+}
+
+/// 同 `create`，位置、尺寸是实际像素
+pub fn create_px(title: &str, x: i32, y: i32, w: i32, h: i32, taskbar: bool, owner: Option<HWND>) -> HWND {
     let t: Vec<u16> = title.encode_utf16().chain([0]).collect();
     let mut ex = WS_EX_LAYERED;
     if !taskbar {
@@ -84,10 +90,10 @@ pub fn create(title: &str, x: i32, y: i32, w: i32, h: i32, taskbar: bool, owner:
             CLASS,
             PCWSTR(t.as_ptr()),
             WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU,
-            super::scale::to_px(x),
-            super::scale::to_px(y),
-            super::scale::to_px(w),
-            super::scale::to_px(h),
+            x,
+            y,
+            w,
+            h,
             owner,
             None,
             GetModuleHandleW(None).ok().map(|h| h.into()),

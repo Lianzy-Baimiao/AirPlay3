@@ -151,11 +151,23 @@ impl App {
                 log::warn!("无法嵌入任务栏");
                 return;
             };
-            self.taskbar = Some(TaskbarLyric { hwnd, parent: tb, canvas: Canvas::new(w, h), surface: Surface::new(w, h), pos: (x, y), drag: None, last: LineState::default(), light: light_taskbar(), ticks: 0, y_range: (0, 0) });
+            // 任务栏歌词不跟随界面缩放（字号单独调）：一直按 100% 画
+            self.taskbar = Some(TaskbarLyric {
+                hwnd,
+                parent: tb,
+                canvas: Canvas::with_scale(w, h, 1.0),
+                surface: Surface::new(w, h),
+                pos: (x, y),
+                drag: None,
+                last: LineState::default(),
+                light: light_taskbar(),
+                ticks: 0,
+                y_range: (0, 0),
+            });
         }
         let t = self.taskbar.as_mut().unwrap();
         if t.canvas.w != w || t.canvas.h != h {
-            t.canvas = Canvas::new(w, h);
+            t.canvas = Canvas::with_scale(w, h, 1.0);
         }
         if t.pos != (x, y) || t.drag.is_none() {
             t.pos = (x, y);
@@ -226,6 +238,8 @@ impl App {
             c.text(&t.last.next, f2, ((w - nw as i32) / 2).max(4), y1 + th as i32 + 2, dim, Hint::Gray);
         }
         c.pop_clip();
+        #[cfg(debug_assertions)]
+        t.canvas.dump("taskbar");
         t.surface.present_at(t.hwnd, &t.canvas, None);
     }
 

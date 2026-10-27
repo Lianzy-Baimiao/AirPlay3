@@ -309,14 +309,15 @@ impl App {
             }
             return;
         }
+        // 桌面歌词不跟随界面缩放（字号单独调）：位置、大小都是实际像素，一直按 100% 画
         let (w, h) = self.desk_size();
-        // 保存的位置不在任何显示器上（拔掉了显示器）时回到默认位置
+        // 保存的位置不在任何显示器上（拔掉了显示器）时回到默认位置：播放条所在显示器的下方居中
         let (bx, by) = self.bar_pos();
-        let a = super::popup::work_area_at((bx + 100, by + 50));
-        let pos = pos.map(|p| (super::scale::to_logical(p[0]), super::scale::to_logical(p[1]))).filter(|&(x, y)| super::app::on_screen(R::new(x, y, w, h)));
+        let a = super::popup::work_area_px((super::scale::to_px(bx + 100), super::scale::to_px(by + 50)));
+        let pos = pos.map(|p| (p[0], p[1])).filter(|&(x, y)| super::app::on_screen_px(R::new(x, y, w, h)));
         let (x, y) = pos.unwrap_or((a.x + (a.w - w) / 2, a.bottom() - h - 60));
         if self.desk.is_none() {
-            let win = Popup::new(x, y, w, h, None, "AirPlay3 桌面歌词");
+            let win = Popup::new_fixed(x, y, w, h, None, "AirPlay3 桌面歌词");
             // 桌面歌词只有文字，不雾化
             super::window::set_frost(win.hwnd, false);
             unsafe {
@@ -329,7 +330,7 @@ impl App {
         let d = self.desk.as_mut().unwrap();
         if d.drag.is_none() {
             // 行数变多、窗口变高时不超出所在显示器的下边
-            let wa = super::popup::work_area_at((x + w / 2, y));
+            let wa = super::popup::work_area_px((x + w / 2, y));
             let y = if y + h > wa.bottom() { (wa.bottom() - h).max(wa.y) } else { y };
             d.win.pos = (x, y);
             d.win.resize(w, h);
@@ -519,11 +520,13 @@ impl App {
         if self.desk.as_ref()?.win.hwnd != hwnd {
             return None;
         }
-        let (x, y) = (super::scale::lx(lp), super::scale::ly(lp));
+        // 桌面歌词不跟随界面缩放：鼠标位置、窗口位置都直接用实际像素
+        let (x, y) = (super::wnd::lo(lp), super::wnd::hi(lp));
+        let cursor = super::scale::cursor_px;
         match msg {
             WM_SETCURSOR => {
                 let d = self.desk.as_ref()?;
-                let (cx, cy) = super::resize::cursor();
+                let (cx, cy) = cursor();
                 let (px, py) = (cx - d.win.pos.0, cy - d.win.pos.1);
                 let (w, h) = (d.win.canvas.w, d.win.canvas.h);
                 let e = if btn_at(w, px, py).is_some() { 0 } else { edges_at(w, h, px, py) };
@@ -540,14 +543,14 @@ impl App {
                 let d = self.desk.as_mut()?;
                 match d.drag {
                     Some(Drag::Move(dx, dy)) => {
-                        let (cx, cy) = super::resize::cursor();
+                        let (cx, cy) = cursor();
                         d.win.move_to(cx - dx, cy - dy);
                     }
-                    Some(Drag::Resize { edges, cursor, rect }) => {
-                        let (cx, cy) = super::resize::cursor();
+                    Some(Drag::Resize { edges, cursor: c0, rect }) => {
+                        let (cx, cy) = cursor();
                         let size = self.player.core.lock().settings.desk_lyric.font_size;
                         let d = self.desk.as_mut()?;
-                        let r = resized(rect, edges, cx - cursor.0, cy - cursor.1, (height_for(1, size), height_for(DeskLyricSettings::MAX_LINES, size)));
+                        let r = resized(rect, edges, cx - c0.0, cy - c0.1, (height_for(1, size), height_for(DeskLyricSettings::MAX_LINES, size)));
                         // 大小和位置一起交给 UpdateLayeredWindow，拖左 / 上边时不闪
                         d.win.pos = (r.x, r.y);
                         d.win.resize(r.w, r.h);
@@ -576,7 +579,7 @@ impl App {
                     return Some(LRESULT(0));
                 }
                 let d = self.desk.as_mut()?;
-                let (cx, cy) = super::resize::cursor();
+                let (cx, cy) = cursor();
                 let edges = edges_at(w, h, x, y);
                 d.drag = Some(if edges != 0 {
                     Drag::Resize { edges, cursor: (cx, cy), rect: R::new(d.win.pos.0, d.win.pos.1, w, h) }
@@ -605,7 +608,7 @@ impl App {
                     let mut g = self.player.core.lock();
                     let s = &mut g.settings.desk_lyric;
                     // 位置存实际像素（与播放条相同）
-                    s.pos = Some([super::scale::to_px(pos.0), super::scale::to_px(pos.1)]);
+                    s.pos = Some([pos.0, pos.1]);
                     if matches!(drag, Drag::Resize { .. }) {
                         (s.width, s.lines) = (Some(w), n);
                     }

@@ -111,9 +111,7 @@ impl App {
         if let Some(c) = self.cfgdir.as_mut() {
             rescale_popup(&mut c.win, old);
         }
-        if let Some(d) = self.desk.as_mut() {
-            rescale_popup(&mut d.win, old);
-        }
+        // 桌面歌词、任务栏歌词不跟随界面缩放（字号单独调），不用动
         // 开着的菜单（在菜单里点的 − / +）留在原来的地方，按新缩放重画
         if let Some(m) = self.menu.as_mut() {
             m.rescale(old);
@@ -124,7 +122,6 @@ impl App {
         for (on, f) in [
             (self.search.is_some(), App::paint_search as fn(&mut App)),
             (self.cfgdir.is_some(), App::paint_cfgdir),
-            (self.desk.is_some(), App::paint_desk),
             (self.minibar.is_some(), App::paint_minibar),
         ] {
             if on {

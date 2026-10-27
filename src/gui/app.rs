@@ -303,8 +303,12 @@ impl App {
 
 /// 矩形（逻辑像素）是否有一部分在某个显示器上（拔掉显示器后，留在那边的面板回到默认位置）
 pub(super) fn on_screen(r: R) -> bool {
+    on_screen_px(super::scale::rect_px(r))
+}
+
+/// 同 `on_screen`，矩形是实际像素
+pub(super) fn on_screen_px(r: R) -> bool {
     use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromRect};
-    let r = super::scale::rect_px(r);
     let rc = RECT { left: r.x, top: r.y, right: r.right(), bottom: r.bottom() };
     !unsafe { MonitorFromRect(&rc, MONITOR_DEFAULTTONULL) }.is_invalid()
 }
