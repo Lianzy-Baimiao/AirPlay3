@@ -1,6 +1,6 @@
 [package]
 name = "airplay3"
-version = "3.26.1"
+version = "3.27.0"
 edition = "2024"
 rust-version = "1.85"
 description = "AirPlay3 本地音乐播放器 (Rust 重写版)"
@@ -45,6 +45,9 @@ features = [
     "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Memory",
+    "Win32_System_JobObjects",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_Media_Audio",
     "Win32_Media_KernelStreaming",
     "Win32_Media_Multimedia",
@@ -58,6 +61,7 @@ features = [
     "Win32_UI_Controls",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_HiDpi",
+    "Win32_UI_Accessibility",
     "Win32_Graphics_Gdi",
     "Win32_Graphics_GdiPlus",
     "Win32_Graphics_Dwm",

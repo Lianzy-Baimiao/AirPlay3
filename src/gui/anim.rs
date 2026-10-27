@@ -494,6 +494,8 @@ impl App {
         self.player.snapshot_last();
         self.player.stop();
         self.player.save(true);
+        // 电台字幕：关闭动画期间让实时辅助字幕在后台关掉（App 释放时等它关完）
+        self.captions.set(false);
         let bar = self.bar_hwnd();
         crate::platform::hotkeys::unregister_all(bar.0 as isize);
         super::tray::remove(bar);

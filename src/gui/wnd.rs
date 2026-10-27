@@ -95,6 +95,8 @@ pub fn after_create(start_hidden: bool) {
                 SetTimer(Some(app.bar_hwnd()), TIMER_TEST_SEARCH, 200, None);
             },
             Ok("radio") => app.show_radio_tab(true),
+            // 播放第一个清单的第一个电台（主界面）
+            Ok("radio-play") => app.play_radio(0),
             // 播放第一个清单的第一个电台，再换成迷你条
             Ok("radio-minibar") => {
                 app.play_radio(0);

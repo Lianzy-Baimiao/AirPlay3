@@ -95,6 +95,8 @@ pub struct UiState {
     pub last_frame: Instant,
     /// 歌词图片面板顶部临时显示的提示（下载专辑图片的结果），显示几秒后恢复原来的说明文字
     pub cover_status: Option<(String, Instant)>,
+    /// 电台字幕（各处歌词位置显示的识别结果）
+    pub caption: super::captions::CaptionView,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -133,6 +135,7 @@ impl UiState {
             drag: Drag::None,
             last_frame: Instant::now(),
             cover_status: None,
+            caption: Default::default(),
         }
     }
 }
@@ -272,6 +275,7 @@ impl App {
             self.dirty(Pane::List);
         }
         self.sync_radio();
+        self.sync_captions();
         self.tick_desk();
         self.tick_taskbar();
         self.tick_minibar();
@@ -352,7 +356,9 @@ impl App {
             dirty = true;
         }
         let age = now - ui.track_started;
-        let lyric_target = if has_lyrics && age > Duration::from_secs(8) { 1.0 } else { 0.0 };
+        // 电台字幕出来时马上换成小封面 + 字幕，收起时回到大封面
+        let captions = !ui.caption.paras.is_empty() && !ui.caption.notice;
+        let lyric_target = if (has_lyrics && age > Duration::from_secs(8)) || captions { 1.0 } else { 0.0 };
         // 电台没有歌词：电台名 / 当前节目一直显示
         let info_target = if age > Duration::from_secs(8) && ui.snap.radio.is_none() { 0.0 } else { 1.0 };
         dirty |= approach(&mut ui.lyric_mode, lyric_target, 0.06);

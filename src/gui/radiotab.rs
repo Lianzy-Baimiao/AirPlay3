@@ -53,7 +53,7 @@ impl App {
     }
 
     /// 底部的临时提示
-    fn radio_note(&mut self, s: impl Into<String>) {
+    pub(super) fn radio_note(&mut self, s: impl Into<String>) {
         self.ui.list.note = Some((s.into(), Instant::now()));
         self.dirty(Pane::List);
     }

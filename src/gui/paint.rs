@@ -51,6 +51,7 @@ impl App {
                     active: s.current.is_some() || s.radio.is_some(),
                     lines: &lines,
                     current: ui.lyric_idx,
+                    captions: if ui.caption.notice { &[] } else { &ui.caption.paras },
                     lyric_mode: ui.lyric_mode,
                     info: ui.info,
                     strip_hover: ui.strip_hover[1],

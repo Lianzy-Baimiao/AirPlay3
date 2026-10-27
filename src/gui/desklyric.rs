@@ -27,22 +27,29 @@ pub struct LineState {
     pub text: String,
     pub next: String,
     pub progress: f32,
+    /// 显示电台字幕时是字幕的版本号（字幕变了就不同），否则 0
+    pub caption: u64,
 }
 
 impl App {
     pub fn line_state(&self) -> LineState {
+        // 电台字幕：最新的一段
+        let cv = &self.ui.caption;
+        if let Some(last) = cv.paras.last() {
+            return LineState { idx: None, text: last.clone(), next: String::new(), progress: 0.0, caption: cv.rev };
+        }
         let n = self.now.lock();
         let pos = self.ui.snap.pos;
         let Some(l) = n.lyrics.as_ref().filter(|l| l.synced && !l.lines.is_empty()) else {
-            return LineState { idx: None, text: title_of(&n.title, &n.artist), next: String::new(), progress: 0.0 };
+            return LineState { idx: None, text: title_of(&n.title, &n.artist), next: String::new(), progress: 0.0, caption: 0 };
         };
         match n.lyric_index(pos) {
             Some(i) => {
                 let line = &l.lines[i];
                 let next = line.trans.clone().unwrap_or_else(|| l.lines.get(i + 1).map_or(String::new(), |x| x.text.clone()));
-                LineState { idx: Some(i), text: line.text.clone(), next, progress: n.lyric_progress(i, pos) }
+                LineState { idx: Some(i), text: line.text.clone(), next, progress: n.lyric_progress(i, pos), caption: 0 }
             }
-            None => LineState { idx: None, text: title_of(&n.title, &n.artist), next: l.lines[0].text.clone(), progress: 0.0 },
+            None => LineState { idx: None, text: title_of(&n.title, &n.artist), next: l.lines[0].text.clone(), progress: 0.0, caption: 0 },
         }
     }
 }
@@ -255,6 +262,24 @@ fn rows(n: usize, lyr: Option<&Lyrics>, title: &str, idx: Option<usize>, progres
     }
 }
 
+/// 电台字幕：几段字按窗口宽度换行，显示最后 n 行，最新的一行在最下面（填满已唱颜色），越往上越淡
+fn caption_rows(n: usize, paras: &[String], size: f32, w: i32) -> Vec<Row> {
+    let font = text::Font::px(size, true);
+    let room = (w - MARGIN * 2) as f32;
+    let lines: Vec<String> = paras.iter().flat_map(|p| super::captions::wrap(p, font, room)).collect();
+    let shown = &lines[lines.len().saturating_sub(n)..];
+    let k = shown.len();
+    shown
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let age = (k - 1 - i) as f32;
+            let newest = i + 1 == k;
+            row(s, (n - k + i) as f32, Align::Left, newest.then_some(1.0), if newest { 1.0 } else { (0.8 - age * 0.15).max(0.4) })
+        })
+        .collect()
+}
+
 /// 没有歌词（或歌词开始前）显示的标题
 pub(super) fn title_of(title: &str, artist: &str) -> String {
     match (title.is_empty(), artist.is_empty()) {
@@ -337,7 +362,7 @@ impl App {
             d.scroll = target;
         }
         let scrolled = super::state::approach(&mut d.scroll, target, 0.18);
-        let changed = st.idx != d.last.idx || st.text != d.last.text || (st.progress - d.last.progress).abs() > 0.004;
+        let changed = st.idx != d.last.idx || st.text != d.last.text || st.caption != d.last.caption || (st.progress - d.last.progress).abs() > 0.004;
         if changed || hover_changed || scrolled {
             d.last = st;
             d.win.dirty = true;
@@ -351,9 +376,17 @@ impl App {
             let s = &g.settings.desk_lyric;
             (s.font_size, style(s.style), s.locked)
         };
-        let (lyr, title): (Option<Arc<Lyrics>>, String) = {
+        let (lyr, mut title): (Option<Arc<Lyrics>>, String) = {
             let n = self.now.lock();
             (n.lyrics.clone().filter(|l| l.synced && !l.lines.is_empty()), title_of(&n.title, &n.artist))
+        };
+        // 电台字幕：出错的提示像标题一样显示
+        let cv = &self.ui.caption;
+        let captions = if cv.notice {
+            title = cv.paras.last().cloned().unwrap_or(title);
+            Vec::new()
+        } else {
+            cv.paras.clone()
         };
         let playing = self.ui.snap.playing;
         let Some(d) = self.desk.as_mut() else { return };
@@ -361,7 +394,7 @@ impl App {
         // 行数跟着窗口当前高度走：拖边调整大小时实时增减
         let n = lines_for(h, size);
         let st = d.last.clone();
-        let list = rows(n, lyr.as_deref(), &title, st.idx, st.progress, d.scroll);
+        let list = if captions.is_empty() { rows(n, lyr.as_deref(), &title, st.idx, st.progress, d.scroll) } else { caption_rows(n, &captions, size, w) };
         let c = &mut d.win.canvas;
         c.clear();
         // 悬停时显示半透明底与工具条（锁定时不显示）

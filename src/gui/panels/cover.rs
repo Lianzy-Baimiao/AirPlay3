@@ -33,6 +33,8 @@ pub struct CoverModel<'a> {
     /// 歌词行与当前行
     pub lines: &'a [String],
     pub current: Option<usize>,
+    /// 电台字幕（几段，越后越新；有字幕时代替歌词显示：按宽度换行，最新的一行在当前行的位置）
+    pub captions: &'a [String],
     /// 0 = 大封面 + 信息，1 = 小封面 + 歌词（中间为过渡）
     pub lyric_mode: f32,
     /// 信息浮层透明度 0..1
@@ -68,7 +70,14 @@ pub fn paint(c: &mut Canvas, m: &CoverModel) {
     let cr = R::new(lerp(big.x, small.x), lerp(big.y, small.y), lerp(big.w, small.w), lerp(big.h, small.h));
     draw_cover(c, m.cover, cr);
     if k > 0.0 {
-        lyric_lines(c, m, small, body, (k * 255.0) as u8);
+        let a = (k * 255.0) as u8;
+        if m.captions.is_empty() {
+            lyric_lines(c, m.lines, m.current, small, body, a);
+        } else {
+            let room = (body.right() - (small.right() + 20) - 4) as f32;
+            let lines: Vec<String> = m.captions.iter().flat_map(|p| crate::gui::captions::wrap(p, FONT, room)).collect();
+            lyric_lines(c, &lines, lines.len().checked_sub(1), small, body, a);
+        }
     }
     if m.info > 0.0 {
         info_overlay(c, m, body, (m.info * 255.0) as u8);
@@ -95,18 +104,18 @@ fn draw_cover(c: &mut Canvas, cover: Option<(&[u8], u32, u32)>, r: R) {
 }
 
 /// 歌词：当前行固定在小封面的垂直中线（原版），之前的行在上、之后的行在下，越远越暗
-fn lyric_lines(c: &mut Canvas, m: &CoverModel, small: R, body: R, a: u8) {
+fn lyric_lines(c: &mut Canvas, lines: &[String], current: Option<usize>, small: R, body: R, a: u8) {
     let x = small.right() + 20;
     let anchor = small.y + small.h / 2 - 6;
-    let cur = m.current.unwrap_or(0) as i32;
+    let cur = current.unwrap_or(0) as i32;
     c.push_clip(R::new(x, body.y + 20, body.right() - x - 4, body.h - 22));
-    for (i, line) in m.lines.iter().enumerate() {
+    for (i, line) in lines.iter().enumerate() {
         let d = i as i32 - cur;
         let y = anchor + d * LINE_H;
         if y < body.y || y > body.bottom() {
             continue;
         }
-        let col = if m.current == Some(i) { theme::focus() } else { theme::g((230 - d.abs().min(6) * 22) as u8) };
+        let col = if current == Some(i) { theme::focus() } else { theme::g((230 - d.abs().min(6) * 22) as u8) };
         c.text(line, FONT, x, y, col.alpha(a), Hint::ClearType);
     }
     c.pop_clip();

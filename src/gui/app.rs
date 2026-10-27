@@ -97,6 +97,8 @@ pub struct App {
     pub minibar: Option<super::minibar::Minibar>,
     /// 系统媒体控制（「启用全局多媒体键盘支持」开启时）
     pub smtc: Option<crate::platform::smtc::Smtc>,
+    /// 电台字幕（Windows 的实时辅助字幕）；没开时什么也不做
+    pub captions: crate::platform::livecaptions::Captions,
     pub hotkey_failed: Vec<crate::config::HotkeyAction>,
     pub async_tx: crossbeam_channel::Sender<super::actions::AsyncMsg>,
     pub async_rx: crossbeam_channel::Receiver<super::actions::AsyncMsg>,
@@ -361,7 +363,7 @@ pub fn run(player: Player, now: SharedNow, cmds: Sender<Command>, start_hidden: 
     bar_slot.store(bar_hwnd.0 as isize, std::sync::atomic::Ordering::Release);
     let ui = super::state::UiState::new(&player);
     let (async_tx, async_rx) = crossbeam_channel::unbounded();
-    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, cfgdir: None, after: None, away: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, smtc: None, async_tx, async_rx };
+    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, cfgdir: None, after: None, away: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, smtc: None, captions: Default::default(), async_tx, async_rx };
     APP.with(|a| *a.borrow_mut() = Some(app));
     super::wnd::after_create(start_hidden);
     unsafe {

@@ -178,7 +178,7 @@ impl App {
             t.light = light_taskbar();
             return self.sync_taskbar_lyric();
         }
-        if st.idx != t.last.idx || st.text != t.last.text || (st.progress - t.last.progress).abs() > 0.01 {
+        if st.idx != t.last.idx || st.text != t.last.text || st.caption != t.last.caption || (st.progress - t.last.progress).abs() > 0.01 {
             t.last = st;
             self.paint_taskbar();
         }
@@ -190,6 +190,7 @@ impl App {
             let s = &g.settings.taskbar_lyric;
             (s.font_size, s.offset_y, s.two_lines)
         };
+        let notice = self.ui.caption.notice;
         let Some(t) = self.taskbar.as_mut() else { return };
         let c = &mut t.canvas;
         c.clear();
@@ -200,21 +201,25 @@ impl App {
         let played = Rgba(234, 115, 43, 255);
         let f1 = Font::px(size, false);
         let f2 = Font::px((size - 3.0).max(9.0), false);
+        // 电台字幕：只显示一行，放不下时显示最后面（最新的字）
+        let caption = t.last.caption != 0 && !notice;
+        let line = if caption { super::captions::tail_fit(&t.last.text, f1, (w - 8) as f32) } else { t.last.text.as_str() };
         let two = two_lines && !t.last.next.is_empty() && h >= 36;
-        let (tw, th) = text::measure(&t.last.text, f1);
+        let (tw, th) = text::measure(line, f1);
         let th2 = if two { text::measure(&t.last.next, f2).1.max(1.0) } else { 0.0 };
         // 两行之间留 2 像素；整块文字在任务栏高度内居中，再按垂直偏移上下移动
         let block = th as i32 + if two { th2 as i32 + 2 } else { 0 };
         t.y_range = y_range(h, block);
         let y1 = text_top(h, block, offset_y);
-        let x1 = ((w - tw as i32) / 2).max(4);
+        // 字幕靠左（居中的话每来一个字整行都要挪）
+        let x1 = if caption { 4 } else { ((w - tw as i32) / 2).max(4) };
         c.push_clip(R::new(0, 0, w, h));
         let split = x1 + (tw * t.last.progress) as i32;
         c.push_clip(R::new(0, 0, split, h));
-        c.text(&t.last.text, f1, x1, y1, played, Hint::Gray);
+        c.text(line, f1, x1, y1, played, Hint::Gray);
         c.pop_clip();
         c.push_clip(R::new(split, 0, w, h));
-        c.text(&t.last.text, f1, x1, y1, fg, Hint::Gray);
+        c.text(line, f1, x1, y1, fg, Hint::Gray);
         c.pop_clip();
         if two {
             let (nw, _) = text::measure(&t.last.next, f2);

@@ -53,6 +53,8 @@ pub enum Act {
     RadioCopy(usize),
     RadioRemove(usize),
     RadioRemoveList(usize),
+    /// 打开 / 关闭电台字幕
+    RadioCaptions,
     /// 主界面 / 迷你条回到默认位置（拖到看不见的地方时用）
     ResetPosition,
     Quit,

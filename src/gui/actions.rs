@@ -35,17 +35,24 @@ impl App {
         let s = &self.ui.snap;
         let Some(m) = self.minibar.as_ref() else { return Vec::new() };
         let order = PlayMode::ALL.iter().map(|md| check(md.label(), None, s.mode == *md, Act::SetMode(*md))).collect();
-        let (desk, taskbar, on_top) = {
+        let (desk, taskbar, on_top, radio, captions) = {
             let g = self.player.core.lock();
-            (g.settings.desk_lyric.visible, g.settings.taskbar_lyric.visible, g.settings.general.always_on_top)
+            let s = &g.settings;
+            (s.desk_lyric.visible, s.taskbar_lyric.visible, s.general.always_on_top, s.radio.enabled, s.radio.captions)
         };
-        vec![
+        let mut v = vec![
             check("迷你歌词", Some(icons::LYRIC_PIC), m.strip, Act::MiniStrip),
             check("音乐列表", Some(icons::LIST), m.panes[3], Act::MiniPane(3)),
             check("均衡器", Some(icons::EQ), m.panes[2], Act::MiniPane(2)),
             Item::Sep,
             check("桌面歌词", None, desk, Act::DeskToggle),
             check("任务栏歌词", None, taskbar, Act::TaskbarToggle),
+        ];
+        // 打开了网络电台时才有（原版没有）
+        if radio {
+            v.push(check("电台字幕", None, captions, Act::RadioCaptions));
+        }
+        v.extend([
             Item::Sep,
             Item::Sub { label: "列表播放顺序".into(), items: order },
             Item::Sep,
@@ -56,7 +63,8 @@ impl App {
             Item::Zoom,
             Item::Sep,
             item("退出", Act::Quit),
-        ]
+        ]);
+        v
     }
 
     fn main_menu(&self) -> Vec<Item> {
@@ -66,9 +74,10 @@ impl App {
         let s = &self.ui.snap;
         let order = PlayMode::ALL.iter().map(|m| check(m.label(), None, s.mode == *m, Act::SetMode(*m))).collect();
         // 先取出设置再拼菜单：同一个表达式里两次 core.lock() 时第一个锁要到表达式结束才释放，第二次加锁会自己等自己（死锁）
-        let (desk, desk_locked, taskbar, on_top, radio) = {
+        let (desk, desk_locked, taskbar, on_top, radio, captions) = {
             let g = self.player.core.lock();
-            (g.settings.desk_lyric.visible, g.settings.desk_lyric.locked, g.settings.taskbar_lyric.visible, g.settings.general.always_on_top, g.settings.radio.enabled)
+            let s = &g.settings;
+            (s.desk_lyric.visible, s.desk_lyric.locked, s.taskbar_lyric.visible, s.general.always_on_top, s.radio.enabled, s.radio.captions)
         };
         let mut v = vec![
             check("歌词图片", Some(icons::LYRIC_PIC), s.show[0], Act::TogglePane(0)),
@@ -90,6 +99,7 @@ impl App {
         ]);
         if radio {
             v.push(check("网络电台", None, self.ui.list.radio && s.show[2], Act::RadioTab(!(self.ui.list.radio && s.show[2]))));
+            v.push(check("电台字幕", None, captions, Act::RadioCaptions));
         }
         v.extend([
             check("始终置顶", None, on_top, Act::ToggleTopmost),
@@ -396,6 +406,7 @@ impl App {
             Act::RadioCopy(i) => self.radio_copy(i),
             Act::RadioRemove(i) => self.radio_remove(i),
             Act::RadioRemoveList(i) => self.radio_remove_list(i),
+            Act::RadioCaptions => self.toggle_captions(),
             Act::ResetPosition => self.reset_layout(),
             Act::Quit => self.quit(),
             _ => {}

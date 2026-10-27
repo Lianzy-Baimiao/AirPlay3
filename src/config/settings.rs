@@ -535,6 +535,8 @@ pub struct RadioSettings {
     pub lists: Vec<crate::radio::StationList>,
     /// 上次听的电台
     pub last: Option<crate::radio::Station>,
+    /// 电台字幕：用 Windows 11 的「实时辅助字幕」识别正在播的声音，显示在歌词的位置上
+    pub captions: bool,
     /// 旧版本（v3.9 ~ v3.20）收藏的电台：读进来后并入 `lists` 的「收藏」，不再写出
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub favorites: Vec<crate::radio::Station>,

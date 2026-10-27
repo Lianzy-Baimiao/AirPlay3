@@ -92,6 +92,7 @@ fn golden() {
             active,
             lines: &lines,
             current: Some(1),
+            captions: &[],
             lyric_mode,
             info,
             strip_hover: strip,

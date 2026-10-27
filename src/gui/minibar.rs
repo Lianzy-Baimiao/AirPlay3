@@ -47,6 +47,8 @@ pub struct Minibar {
     widths: (u64, Vec<i32>),
     /// 听电台时歌词条上的文字：(文字, 宽度, 换成这段文字的时刻)
     radio: Option<(String, i32, std::time::Instant)>,
+    /// 显示电台字幕时的滚动状态
+    cap: Option<CapTicker>,
     /// 进入迷你条模式之前播放条的位置（实际像素；退出时主界面回到这里）
     pub normal: (i32, i32),
 }
@@ -67,6 +69,7 @@ impl Minibar {
             slogan: -1.0,
             widths: (0, Vec::new()),
             radio: None,
+            cap: None,
             normal,
         }
     }
@@ -182,6 +185,83 @@ fn radio_line(m: &mut Minibar, s: String) -> Vec<(i32, String, bool)> {
     [x0, x0 + w + MARQUEE_GAP].into_iter().filter(|&x| x < W && x + w > 0).map(|x| (x, s.clone(), true)).collect()
 }
 
+/// 电台字幕在歌词条上：最新一段的末尾贴在右边淡出区的里边，前一段的结尾在它左边（暗一些），
+/// 新来的字把整行往左推。推的时候不是一下跳过去，而是先停在原处、再匀速滑过去（lag = 还没滑完的距离）
+pub struct CapTicker {
+    latest: String,
+    prev: String,
+    /// 最新一段、前一段末尾的宽度
+    lw: f32,
+    pw: f32,
+    lag: f32,
+    /// 为了少画看不见的字，最新一段从第几个字节开始画、前面截掉的宽度
+    cut: (usize, f32),
+}
+
+/// 每帧滑多少像素（约 120 像素 / 秒，跟得上说话的速度），最多落后多少（再多就直接跳过去）
+const CAP_SLIDE: f32 = 4.0;
+const CAP_MAX_LAG: f32 = 80.0;
+/// 前一段只留最后几个字
+const CAP_PREV_CHARS: usize = 40;
+
+fn cap_line(m: &mut Minibar, paras: &[String]) -> Vec<(i32, String, bool)> {
+    let room = (W - 2 * FADE_TO) as f32;
+    let latest = paras.last().cloned().unwrap_or_default();
+    let prev_full = paras.len().checked_sub(2).map(|i| paras[i].as_str());
+    let prev: String = prev_full.map_or(String::new(), |p| {
+        let n = p.chars().count();
+        p.chars().skip(n.saturating_sub(CAP_PREV_CHARS)).collect()
+    });
+    let width = |s: &str| text::measure(s, FONT).0;
+    let gap = TICK_GAP as f32;
+    let total = |pw: f32, lw: f32| if pw > 0.0 { pw + gap + lw } else { lw };
+    if m.cap.as_ref().is_none_or(|c| c.latest != latest || c.prev != prev) {
+        let (lw, pw) = (width(&latest), width(&prev));
+        let tot = total(pw, lw);
+        let lag = m.cap.as_ref().map_or(0.0, |o| {
+            // 旧内容的末尾在新内容里的位置：换了一段（旧的最新一段成了前一段）时是前一段的末尾，否则是这一段原来的末尾
+            let old_end = if prev_full == Some(o.latest.as_str()) { pw } else { total(pw, o.lw) };
+            // 让旧内容的末尾在屏幕上先不动（末尾的位置 = 左边淡出区 + min(总宽, room) + lag），再慢慢滑过去
+            let lag = o.lag + (tot - old_end) - (tot.min(room) - total(o.pw, o.lw).min(room));
+            if lag > CAP_MAX_LAG { 0.0 } else { lag.max(0.0) }
+        });
+        m.cap = Some(CapTicker { latest, prev, lw, pw, lag, cut: (0, 0.0) });
+    }
+    let Some(c) = m.cap.as_mut() else { return Vec::new() };
+    c.lag = (c.lag - CAP_SLIDE).max(0.0);
+    let tot = total(c.pw, c.lw);
+    // 内容左边的位置：放得下时贴着左边淡出区，放不下时让末尾贴着右边淡出区
+    let x0 = FADE_TO as f32 + (room - tot).min(0.0) + c.lag;
+    let lx = x0 + if c.pw > 0.0 { c.pw + gap } else { 0.0 };
+    let mut out = Vec::new();
+    if c.pw > 0.0 {
+        let px = x0.round() as i32;
+        if px < W && px + c.pw.ceil() as i32 > 0 {
+            out.push((px, c.prev.clone(), false));
+        }
+    }
+    // 最新一段左边远远超出歌词条时，前面看不见的字不画（截的位置每次多截一些，免得每帧都换一次文字）
+    let hidden = -lx;
+    if hidden > c.cut.1 + 2.0 * W as f32 || hidden < c.cut.1 {
+        c.cut = (0, 0.0);
+        if hidden > W as f32 {
+            let mut acc = 0.0;
+            for (i, ch) in c.latest.char_indices() {
+                let mut b = [0u8; 4];
+                let w = text::measure(ch.encode_utf8(&mut b), FONT).0;
+                if acc + w > hidden - W as f32 / 2.0 {
+                    c.cut = (i, width(&c.latest[..i]));
+                    break;
+                }
+                acc += w;
+            }
+        }
+    }
+    let (i, cw) = c.cut;
+    out.push(((lx + cw).round() as i32, c.latest[i..].to_string(), true));
+    out
+}
+
 /// 文字后面的暗色光晕：玻璃几乎透明，放在什么背景上都看得清
 const HALO: Rgba = Rgba(16, 16, 16, 190);
 
@@ -236,8 +316,8 @@ impl App {
         }
         let sl = (m.slogan - slogan).abs() > 1e-3;
         m.slogan = slogan;
-        // 电台名放不下时一直在滚
-        let scrolling = m.strip && m.radio.as_ref().is_some_and(|r| r.1 > W - 2 * FADE_TO);
+        // 电台名放不下时一直在滚；字幕还没滑到位时也要接着画
+        let scrolling = m.strip && (m.radio.as_ref().is_some_and(|r| r.1 > W - 2 * FADE_TO) || m.cap.as_ref().is_some_and(|c| c.lag > 0.0));
         if st != m.last || fading || hov || sl || playing || scrolling {
             m.last = st;
             self.paint_minibar();
@@ -370,9 +450,17 @@ impl App {
     fn ticker_lines(&mut self, pos: f64) -> Vec<(i32, String, bool)> {
         let n = self.now.lock();
         let Some(m) = self.minibar.as_mut() else { return Vec::new() };
+        let cv = &self.ui.caption;
+        if cv.paras.is_empty() || cv.notice || !m.strip {
+            m.cap = None;
+        }
         if self.ui.snap.radio.is_none() {
             m.radio = None;
         } else if m.strip {
+            // 电台字幕：最新的字贴在右边；出错的提示和电台名一样显示
+            if !cv.paras.is_empty() {
+                return if cv.notice { radio_line(m, cv.paras[0].clone()) } else { cap_line(m, &cv.paras) };
+            }
             // 电台没有歌词：显示「电台名 - 节目」（连接中、出错时是状态），与桌面歌词相同
             return radio_line(m, super::desklyric::title_of(&n.title, &n.artist));
         }

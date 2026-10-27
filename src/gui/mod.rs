@@ -9,6 +9,7 @@ pub mod canvas;
 pub mod draw;
 mod input;
 mod anim;
+mod captions;
 mod cfgdirwin;
 mod lyricdlwin;
 mod lyricwin;
