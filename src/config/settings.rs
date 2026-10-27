@@ -467,12 +467,15 @@ pub struct WindowState {
     pub pane_offsets: Option<[[i32; 2]; 3]>,
     /// 界面缩放（百分比，100 ~ 300，25 一档）；None = 跟随系统的显示缩放
     pub zoom: Option<u32>,
+    /// 迷你条两条的位置（实际像素：控制条, 歌词条）；下次进入迷你条模式时放回这里
+    pub mini_strips: Option<[[i32; 2]; 2]>,
 }
 
 impl Default for WindowState {
     fn default() -> Self {
         Self {
             zoom: None,
+            mini_strips: None,
             main: None,
             maximized: false,
             compact: false,

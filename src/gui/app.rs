@@ -146,10 +146,17 @@ impl App {
             let (x, y) = self.win_ref(p).pos;
             [x - bx, y - by]
         });
+        let px = |p: (i32, i32)| [super::scale::to_px(p.0), super::scale::to_px(p.1)];
+        let mini = self.minibar.as_ref().map(|m| (m.normal, [px(m.top.pos), px(m.bottom.pos)]));
         let mut g = self.player.core.lock();
         let w = &mut g.settings.window;
-        // 播放条的位置存实际像素（换了缩放也还在屏幕上原来的地方）；面板相对它的位置、尺寸是逻辑像素
-        w.main = Some(crate::config::WinRect { x: super::scale::to_px(bx) as f32, y: super::scale::to_px(by) as f32, w: 625.0, h: 431.0 });
+        // 播放条的位置存实际像素（换了缩放也还在屏幕上原来的地方）；面板相对它的位置、尺寸是逻辑像素。
+        // 迷你条模式下隐藏的主界面跟着控制条走：存的是进入迷你条之前的位置，另外记下两条迷你条的位置
+        let (mx, my) = mini.map_or((super::scale::to_px(bx), super::scale::to_px(by)), |m| m.0);
+        w.main = Some(crate::config::WinRect { x: mx as f32, y: my as f32, w: 625.0, h: 431.0 });
+        if let Some((_, strips)) = mini {
+            w.mini_strips = Some(strips);
+        }
         w.list_size = [self.sizes.list.0, self.sizes.list.1];
         (w.cover_w, w.cover_h) = self.sizes.cover;
         w.bar_w = self.sizes.bar_w;
@@ -266,6 +273,12 @@ impl App {
         for p in [Pane::Bar, Pane::Cover, Pane::Eq, Pane::List] {
             let (ox, oy) = self.sizes.default_offset(p);
             self.place(p, x + ox, y + oy);
+        }
+        match self.minibar.as_mut() {
+            // 迷你条模式下：退出时主界面也回到默认位置
+            Some(m) => m.normal = (super::scale::to_px(x), super::scale::to_px(y)),
+            // 下次进入迷你条模式时也从默认位置开始
+            None => self.player.core.lock().settings.window.mini_strips = None,
         }
         self.reset_minibar();
         self.save_layout();

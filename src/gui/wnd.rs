@@ -151,6 +151,21 @@ impl App {
             self.on_dpi_changed(wp.0 as u32);
             return Some(LRESULT(0));
         }
+        // 仅调试构建：自测迷你条。wParam 低 4 位：0 = 进入 / 退出迷你条，1 = 拖控制条，2 = 拖歌词条；
+        // 拖动的位移在 4..16 位（dx + 2048）和 16..28 位（dy + 2048）
+        #[cfg(debug_assertions)]
+        if msg == WM_APP + 10 {
+            let (op, dx, dy) = (wp.0 & 0xF, ((wp.0 >> 4) & 0xFFF) as i32 - 2048, ((wp.0 >> 16) & 0xFFF) as i32 - 2048);
+            match op {
+                0 => self.toggle_minibar(),
+                1 | 2 => {
+                    let r = self.test_minibar_drag(op - 1, dx, dy);
+                    log::info!("自测拖动迷你条 {op} ({dx}, {dy}) -> {r:?}");
+                }
+                _ => {}
+            }
+            return Some(LRESULT(0));
+        }
         if let Some(r) = self.minibar_msg(hwnd, msg, wp, lp) {
             return Some(r);
         }

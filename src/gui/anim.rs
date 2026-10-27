@@ -601,20 +601,25 @@ impl App {
         }
     }
 
-    /// 换成迷你条（主界面的关闭动画播完以后）：两条在播放条的位置淡入
+    /// 换成迷你条（主界面的关闭动画播完以后）：两条在上次的位置淡入（第一次：控制条在播放条的位置，歌词条在下方）
     fn open_minibar(&mut self) {
         use super::minibar::{GAP, H, Minibar, W};
         use super::popup::Popup;
-        let (x, y) = self.bar_pos();
+        let (bx, by) = self.bar_pos();
+        // 进入前主界面的位置（实际像素；退出迷你条时回到这里）
+        let normal = (super::scale::to_px(bx), super::scale::to_px(by));
+        let ((x, y), (lx, ly)) = self.saved_minibar_pos().unwrap_or(((bx, by), (bx, by + GAP)));
+        // 隐藏的主界面跟着控制条（迷你条模式下单独打开的面板在它旁边）
+        self.move_to(x, y);
         let top = Popup::new(x, y, W, H, None, "AirPlay3 迷你条");
-        let bottom = Popup::new(x, y + GAP, W, H, Some(top.hwnd), "AirPlay3 迷你歌词");
+        let bottom = Popup::new(lx, ly, W, H, Some(top.hwnd), "AirPlay3 迷你歌词");
         let on_top = self.player.core.lock().settings.general.always_on_top;
         unsafe {
             for h in [top.hwnd, bottom.hwnd] {
                 let _ = SetWindowPos(h, Some(if on_top { HWND_TOPMOST } else { HWND_NOTOPMOST }), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             }
         }
-        self.minibar = Some(Minibar::new(top, bottom, Some(Anim::open(0.0))));
+        self.minibar = Some(Minibar::new(top, bottom, Some(Anim::open(0.0)), normal));
         self.paint_minibar();
         if let Some(m) = &self.minibar {
             m.top.show(false);

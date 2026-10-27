@@ -47,10 +47,12 @@ pub struct Minibar {
     widths: (u64, Vec<i32>),
     /// 听电台时歌词条上的文字：(文字, 宽度, 换成这段文字的时刻)
     radio: Option<(String, i32, std::time::Instant)>,
+    /// 进入迷你条模式之前播放条的位置（实际像素；退出时主界面回到这里）
+    pub normal: (i32, i32),
 }
 
 impl Minibar {
-    pub fn new(top: Popup, bottom: Popup, fade: Option<Anim>) -> Minibar {
+    pub fn new(top: Popup, bottom: Popup, fade: Option<Anim>, normal: (i32, i32)) -> Minibar {
         Minibar {
             top,
             bottom,
@@ -65,6 +67,7 @@ impl Minibar {
             slogan: -1.0,
             widths: (0, Vec::new()),
             radio: None,
+            normal,
         }
     }
 }
@@ -189,8 +192,19 @@ impl App {
             return;
         }
         if let Some(mut m) = self.minibar.take() {
+            // 记住两条的位置；主界面回到进入迷你条之前的位置（隐藏的主界面跟着控制条走过）
+            let px = |p: (i32, i32)| [super::scale::to_px(p.0), super::scale::to_px(p.1)];
+            let strips = [px(m.top.pos), px(m.bottom.pos)];
             m.top.close();
             m.bottom.close();
+            {
+                let mut g = self.player.core.lock();
+                g.settings.window.mini_strips = Some(strips);
+                g.touch_settings();
+            }
+            self.move_to(super::scale::to_logical(m.normal.0), super::scale::to_logical(m.normal.1));
+            self.keep_layout_on_screen();
+            self.save_layout();
             self.show_main(false);
             return;
         }
@@ -389,6 +403,25 @@ impl App {
         out
     }
 
+    /// 拖完迷你条：记住两条的位置（下次进入迷你条模式时放回这里）；拖动时显示缩放变了的话现在换
+    pub(super) fn end_minibar_drag(&mut self) {
+        self.save_layout();
+        self.apply_pending_zoom();
+    }
+
+    /// 上次的迷你条位置（逻辑像素：控制条, 歌词条）。控制条不在任何显示器上时 None（回到默认位置），
+    /// 只有歌词条不在时把它放回控制条下方
+    pub(super) fn saved_minibar_pos(&self) -> Option<((i32, i32), (i32, i32))> {
+        let [t, b] = self.player.core.lock().settings.window.mini_strips?;
+        let l = |p: [i32; 2]| (super::scale::to_logical(p[0]), super::scale::to_logical(p[1]));
+        let (t, b) = (l(t), l(b));
+        if !super::app::on_screen(R::new(t.0, t.1, W, H)) {
+            return None;
+        }
+        let b = if super::app::on_screen(R::new(b.0, b.1, W, H)) { b } else { (t.0, t.1 + GAP) };
+        Some((t, b))
+    }
+
     /// 按鼠标位置移动迷你条（吸附算法与主界面面板相同，见 snap.rs）
     fn minibar_drag(&mut self, d: MiniDrag) {
         self.minibar_drag_at(d, super::resize::cursor());
@@ -423,9 +456,12 @@ impl App {
         }
         let m = self.minibar.as_ref()?;
         let rect = |p: &Popup| R::new(p.pos.0, p.pos.1, W, H);
-        let c0 = (10_000, 10_000);
+        // 鼠标从被拖的那一条的中间开始（与真的拖动一样在它所在的显示器上）
+        let s = if lead == 0 { m.top.pos } else { m.bottom.pos };
+        let c0 = (s.0 + W / 2, s.1 + H / 2);
         let d = MiniDrag { lead, cursor: c0, rects: [rect(&m.top), rect(&m.bottom)], taskbar: super::resize::taskbar_rect() };
         self.minibar_drag_at(d, (c0.0 + dx, c0.1 + dy));
+        self.end_minibar_drag();
         let m = self.minibar.as_ref()?;
         Some([m.top.pos, m.bottom.pos])
     }
@@ -478,11 +514,13 @@ impl App {
                 self.paint_minibar();
             }
             WM_LBUTTONUP => {
-                m.drag = None;
+                let dragged = m.drag.take().is_some();
                 unsafe {
                     let _ = ReleaseCapture();
                 }
-                self.apply_pending_zoom();
+                if dragged {
+                    self.end_minibar_drag();
+                }
             }
             WM_LBUTTONDBLCLK => self.toggle_minibar(),
             // Alt+F4 等：与主界面一样（完全退出，或开了「点关闭按钮缩到托盘」时缩到托盘）
