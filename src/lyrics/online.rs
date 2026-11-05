@@ -180,7 +180,7 @@ fn search_lrclib(net: &NetworkSettings, title: &str, artist: &str) -> Result<Vec
         .into_iter()
         .filter(|r| !r.instrumental)
         .map(|r| {
-            let lyrics = r.synced_lyrics.clone().filter(|t| !t.trim().is_empty()).or(r.plain_lyrics.clone());
+            let lyrics = r.synced_lyrics.filter(|t| is_synced(t));
             Candidate { provider: Provider::Lrclib, key: String::new(), title: r.track_name, artist: r.artist_name, album: r.album_name, duration: r.duration, lyrics, cover: String::new() }
         })
         .collect())
@@ -194,11 +194,11 @@ fn search_one(net: &NetworkSettings, p: Provider, title: &str, artist: &str) -> 
     }
 }
 
-/// 一条结果的歌词文本（LRC）。两个来源都在搜索时带回歌词；没有歌词的结果（纯音乐、只有图片）返回错误
+/// 下载前再次校验，防止旧搜索结果里的纯文本或损坏时间轴覆盖现有歌词。
 pub fn fetch(_net: &NetworkSettings, c: &Candidate) -> Result<String, String> {
     match &c.lyrics {
-        Some(t) if !t.trim().is_empty() => Ok(t.clone()),
-        _ => Err("这首歌没有歌词（可能是纯音乐）".into()),
+        Some(t) if is_synced(t) => Ok(t.clone()),
+        _ => Err("这份歌词没有有效时间轴，已取消下载，请选择其他结果".into()),
     }
 }
 
@@ -220,8 +220,8 @@ pub fn search(net: &NetworkSettings, providers: &[Provider], title: &str, artist
         match r {
             Ok(v) => {
                 any_ok = true;
-                // 歌词搜索只列出有歌词的结果（LrcAPI 偶尔有只带图片的条目）
-                out.extend(v.into_iter().filter(|c| c.lyrics.is_some()));
+                // 手动、自动使用同一规则：纯文本、损坏的时间标签、只有空白时间行都不列出。
+                out.extend(v.into_iter().filter(|c| c.lyrics.as_deref().is_some_and(is_synced)));
             }
             Err(e) => {
                 log::info!("{} 搜索失败: {e}", p.label());
@@ -235,18 +235,10 @@ pub fn search(net: &NetworkSettings, providers: &[Provider], title: &str, artist
     Ok(out)
 }
 
-/// 有时间轴：至少 5 行以 `[数字…:` 开头
+/// 用播放端同一个解析器校验：至少一行有效时间标签和非空正文；短歌词也可以有效。
 pub fn is_synced(t: &str) -> bool {
-    t.lines()
-        .filter(|l| {
-            let l = l.trim_start();
-            l.strip_prefix('[').is_some_and(|r| {
-                let d = r.chars().take_while(char::is_ascii_digit).count();
-                d > 0 && r[d..].starts_with(':')
-            })
-        })
-        .count()
-        >= 5
+    let lyrics = super::lrc::parse(t);
+    lyrics.synced && lyrics.lines.iter().any(|line| line.time.is_finite() && line.time >= 0.0 && !line.text.trim().is_empty())
 }
 
 /// 时长相差 5 秒内；时长未知时标题一致或互相包含
@@ -319,6 +311,9 @@ fn dur_gap(c: &Candidate, duration: f64) -> i64 {
 
 /// 保存为 `艺人 - 曲目.lrc`（本地标签，与本地查找规则一致），返回文件路径
 pub fn save(text: &str, c: &Candidate, dir: &std::path::Path, title: &str, artist: &str) -> std::io::Result<std::path::PathBuf> {
+    if !is_synced(text) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "歌词没有有效时间轴，未保存"));
+    }
     std::fs::create_dir_all(dir)?;
     let name = if artist.is_empty() {
         format!("{}.lrc", crate::util::sanitize_file_name(title))
@@ -344,6 +339,10 @@ mod tests {
         let lrc = "[ti:x]\n[00:01.00]a\n[00:02.00]b\n[00:03.00]c\n[00:04.00]d\n[00:05.00]e\n";
         assert!(is_synced(lrc));
         assert!(!is_synced("[ti:x]\n纯文本歌词\n第二行"));
+        assert!(is_synced("[00:01]短歌词也有有效时间轴"));
+        for invalid in ["[00:01]\n[00:02]", "[00:bad]正文", "[00:99]正文", "[00:-1]正文", "[inf:00]正文", "[00:01.2bad]正文"] {
+            assert!(!is_synced(invalid), "异常时间轴: {invalid}");
+        }
         assert_eq!(strip_sections("[Verse]\n[00:21.168]简单点\n[ti:演员]\n[Chorus]\n[]"), "[00:21.168]简单点\n[ti:演员]\n[]");
         assert_eq!(seconds(&serde_json::json!(250.491)), 250.491);
         assert_eq!(seconds(&serde_json::json!("261.25")), 261.25);

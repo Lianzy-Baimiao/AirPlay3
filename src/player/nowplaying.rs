@@ -80,17 +80,14 @@ fn load_lyrics(t: &Track, dirs: &[PathBuf]) -> Option<(Lyrics, LyricSource)> {
 }
 
 /// 自动找到的纯文本可能只是资源广告，仍应尝试补充同步歌词；搜索失败时保留原文。
-/// 已有同步歌词、用户指定的文件和取消关联都尊重原来的选择。
+/// 有效的同步歌词和取消关联都尊重原来的选择；旧版本关联的异常纯文本可重新获取。
 fn should_download_lyrics(t: &Track, ls: &LyricSettings, loaded: Option<&(Lyrics, LyricSource)>) -> bool {
     if !ls.auto_download || !ls.download_lyric || t.lyric_unlinked {
         return false;
     }
     match loaded {
         None => true,
-        Some((l, source)) => {
-            let linked = matches!(source, LyricSource::File(path) if t.lyric_path.as_ref() == Some(path));
-            !linked && !(l.synced && l.lines.iter().any(|line| !line.text.trim().is_empty()))
-        }
+        Some((l, _)) => !(l.synced && l.lines.iter().any(|line| !line.text.trim().is_empty())),
     }
 }
 
@@ -430,9 +427,11 @@ mod tests {
         assert!(should_download_lyrics(&t, &ls, Some(&local_plain)));
         assert!(should_download_lyrics(&t, &ls, Some(&empty_synced)));
         assert!(!should_download_lyrics(&t, &ls, Some(&embedded_synced)));
-        // 用户关联的纯文本文件仍然优先，不会被在线结果替换。
+        // 旧版误关联的纯文本也视为异常，应重新获取同步歌词。
         t.lyric_path = Some(path);
-        assert!(!should_download_lyrics(&t, &ls, Some(&local_plain)));
+        assert!(should_download_lyrics(&t, &ls, Some(&local_plain)));
+        let local_synced = (embedded_synced.0.clone(), local_plain.1.clone());
+        assert!(!should_download_lyrics(&t, &ls, Some(&local_synced)));
         // 关联文件已丢失时仍可补充；主动取消关联时不下载。
         assert!(should_download_lyrics(&t, &ls, None));
         t.lyric_unlinked = true;

@@ -131,7 +131,7 @@ impl App {
             Ok((mut v, loose)) => {
                 // 标题、艺人对得上的在前，再按时长接近程度、专辑、来源顺序（LrcAPI → LRCLIB）
                 online::sort_for_list(&mut v, &s.fields[0], &s.fields[1], &s.fields[2], s.duration);
-                s.list_note = if v.is_empty() { "没有找到，试试修改标题或艺人".into() } else { String::new() };
+                s.list_note = if v.is_empty() { "没有找到同步歌词，试试修改标题或艺人".into() } else { String::new() };
                 s.results = v;
                 s.scroll = 0;
                 let first = (!s.results.is_empty()).then_some(0);
@@ -156,7 +156,7 @@ impl App {
         s.preview = match i.and_then(|i| s.results.get(i)) {
             Some(c) => match &c.lyrics {
                 Some(text) => {
-                    let mut lines = vec![if crate::lyrics::lrc::parse(text).synced { "同步歌词 · 随播放滚动".into() } else { "纯文本歌词 · 无时间轴，不会随播放滚动".into() }];
+                    let mut lines = vec!["同步歌词 · 随播放滚动".into()];
                     lines.extend(sp::preview_lines(text, sp::PREVIEW_LINES - 1));
                     lines
                 }

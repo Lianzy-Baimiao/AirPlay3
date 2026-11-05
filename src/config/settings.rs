@@ -251,6 +251,8 @@ impl Default for ListSettings {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LyricSettings {
+    /// 播放开始时歌曲封面 / 信息的展示秒数，0 = 不等待，直接显示已加载的歌词。
+    pub cover_intro_secs: u32,
     /// 显示歌词
     pub show_lyric: bool,
     /// 显示图片
@@ -278,6 +280,7 @@ pub struct LyricSettings {
 impl Default for LyricSettings {
     fn default() -> Self {
         Self {
+            cover_intro_secs: 8,
             show_lyric: true,
             show_cover: true,
             embedded_pic: true,

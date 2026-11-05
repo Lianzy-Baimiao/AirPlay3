@@ -200,6 +200,9 @@ pub fn layout(tab: usize) -> Vec<Item> {
             it(R::new(145, 284, 338, 21), Path(Field::CustomDir, "歌词文件存放位置")),
             it(R::new(145, 322, 80, 18), Label("歌词来源")),
             it(R::new(222, 321, 261, 19), Drop(Choice::LyricSource)),
+            it(R::new(145, 350, 90, 18), Label("封面展示时长")),
+            it(R::new(240, 349, 48, 19), Edit(Field::CoverIntroSecs, "8")),
+            it(R::new(298, 350, 185, 18), Label("秒（0 秒关闭，最多 60 秒）")),
         ],
         TAB_DESK => vec![
             key(pr(121, 36, 302), Grey, "显示桌面歌词", Key::DeskLyric),

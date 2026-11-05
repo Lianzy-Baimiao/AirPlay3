@@ -89,7 +89,7 @@ fn tabs(c: &mut Canvas, sel: usize, hover: Option<usize>) {
         let r = tab_rect(i);
         let tw = text::measure(name, FONT).0 as i32;
         let v = if i == sel { 255 } else if hover == Some(i) { 0xE8 } else { 0xBF };
-        c.text(name, FONT, r.x + (TAB_W - tw) / 2 + 1, r.y + 2, Rgba::gray(v), Hint::ClearType);
+        c.text(name, FONT, r.x + (TAB_W - tw) / 2 + 1, r.y + 2, theme::g(v), Hint::ClearType);
     }
 }
 
@@ -118,11 +118,11 @@ pub fn paint(c: &mut Canvas, m: &SettingsModel) {
             }
             Widget::Check(_, label) => pill::plain_check(c, r, label, st.on, hot),
             Widget::Label(s) => {
-                c.text(s, FONT, r.x, r.y + (r.h - 16) / 2 + 1, Rgba::gray(0xA0), Hint::ClearType);
+                c.text(s, FONT, r.x, r.y + (r.h - 16) / 2 + 1, theme::g(0xA0), Hint::ClearType);
             }
             Widget::Title(s) => {
                 let tw = text::measure(s, FONT).0 as i32;
-                c.text(s, FONT, r.x + (r.w - tw) / 2, r.y, Rgba::gray(0xBB), Hint::ClearType);
+                c.text(s, FONT, r.x + (r.w - tw) / 2, r.y, theme::g(0xBB), Hint::ClearType);
             }
             Widget::Drop(_) => pill::dropdown(c, r, &st.value, st.enabled, hot),
             Widget::Edit(_, hint) => pill::edit(c, r, &st.value, hint, st.enabled, st.focused),

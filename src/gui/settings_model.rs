@@ -58,6 +58,7 @@ pub enum Key {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Field {
+    CoverIntroSecs,
     CustomDir,
     ProxyHost,
     ProxyPort,
@@ -78,7 +79,7 @@ pub enum Field {
 impl Field {
     /// 数字输入框：输入过程中（如只打了 "-"）解析不了时先不改设置
     pub fn numeric(self) -> bool {
-        matches!(self, Field::ProxyPort | Field::TaskbarX | Field::TaskbarY | Field::TaskbarFont | Field::TaskbarWidth | Field::DeskFont)
+        matches!(self, Field::CoverIntroSecs | Field::ProxyPort | Field::TaskbarX | Field::TaskbarY | Field::TaskbarFont | Field::TaskbarWidth | Field::DeskFont)
     }
 
     /// 显示为 * 的输入框（密码、密钥）
@@ -223,6 +224,7 @@ pub fn text(s: &Settings, f: Field) -> String {
 pub fn raw_text(s: &Settings, f: Field) -> String {
     let t = &s.taskbar_lyric;
     match f {
+        Field::CoverIntroSecs => s.lyrics.cover_intro_secs.min(60).to_string(),
         Field::CustomDir => s.lyrics.custom_dir.clone().unwrap_or_default(),
         Field::ProxyHost => s.network.host.clone(),
         Field::ProxyPort => if s.network.port == 0 { String::new() } else { s.network.port.to_string() },
@@ -243,6 +245,10 @@ pub fn set_text(s: &mut Settings, f: Field, v: &str) -> bool {
     let num = |lo: i32, hi: i32| v.trim().parse::<i32>().ok().map(|n| n.clamp(lo, hi));
     let t = &mut s.taskbar_lyric;
     match f {
+        Field::CoverIntroSecs => match num(0, 60) {
+            Some(n) => s.lyrics.cover_intro_secs = n as u32,
+            None => return false,
+        },
         Field::CustomDir => s.lyrics.custom_dir = Some(v.to_string()),
         Field::ProxyHost => s.network.host = v.trim().to_string(),
         Field::ProxyPort => match v.trim() {
@@ -309,6 +315,17 @@ mod tests {
     #[test]
     fn numeric_fields() {
         let mut s = Settings::default();
+        assert_eq!(s.lyrics.cover_intro_secs, 8);
+        assert!(set_text(&mut s, Field::CoverIntroSecs, "0"));
+        assert_eq!(s.lyrics.cover_intro_secs, 0);
+        assert!(!set_text(&mut s, Field::CoverIntroSecs, ""));
+        assert_eq!(s.lyrics.cover_intro_secs, 0);
+        let saved: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(saved.lyrics.cover_intro_secs, 0, "关闭后重启仍关闭");
+        let old: Settings = serde_json::from_str(r#"{"lyrics":{}}"#).unwrap();
+        assert_eq!(old.lyrics.cover_intro_secs, 8, "旧配置沿用八秒");
+        assert!(set_text(&mut s, Field::CoverIntroSecs, "999"));
+        assert_eq!(raw_text(&s, Field::CoverIntroSecs), "60");
         // 输入到一半（只有负号）时不改设置
         assert!(!set_text(&mut s, Field::TaskbarX, "-"));
         assert_eq!(s.taskbar_lyric.offset, -20);

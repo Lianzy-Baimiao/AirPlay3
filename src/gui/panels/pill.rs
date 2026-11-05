@@ -4,6 +4,7 @@
 
 use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::{self, Font, Hint};
+use crate::gui::theme;
 use crate::skin::sdf::{S, Shape};
 
 pub const FONT: Font = Font::px(12.0, false);
@@ -152,13 +153,13 @@ pub fn plain_check_ex(c: &mut Canvas, r: R, label: &str, on: bool, hot: bool, en
         check(c, b.x + 1, b.y, Rgba::gray(0x21), false);
     }
     let ink = if enabled { 0xE0 } else { 0x3E };
-    c.text(label, FONT, b.x + 19, r.y + (r.h - 16) / 2 + 1, Rgba::gray(ink), Hint::ClearType);
+    c.text(label, FONT, b.x + 19, r.y + (r.h - 16) / 2 + 1, theme::g(ink), Hint::ClearType);
 }
 
 /// 细边框的框（下拉框、输入框）
 fn frame(c: &mut Canvas, r: R, enabled: bool, focused: bool) {
     let col = if focused { 0x8F } else if enabled { 0x51 } else { 0x39 };
-    ring(c, r, Rgba::gray(col), 1.0);
+    ring(c, r, theme::g(col), 1.0);
 }
 
 /// 实心的向下小三角：左上角 (x, y)，宽 w、高 h（抗锯齿）
@@ -179,14 +180,14 @@ pub fn dropdown(c: &mut Canvas, r: R, value: &str, enabled: bool, hot: bool) {
     frame(c, r, enabled, hot && enabled);
     let ty = r.y + (r.h - 16) / 2 + 1;
     c.push_clip(R::new(r.x + 1, r.y + 1, r.w - 18, r.h - 2));
-    c.text(value, FONT, r.x + 4, ty, Rgba::gray(if enabled { 0xE0 } else { 0x41 }), Hint::ClearType);
+    c.text(value, FONT, r.x + 4, ty, theme::g(if enabled { 0xE0 } else { 0x41 }), Hint::ClearType);
     c.pop_clip();
     let (ax, ay) = (r.right() - 12.0f32.max(0.0) as i32, r.y + r.h / 2 - 2);
     let tri = Shape::of(vec![S::Poly(vec![(0.0, 0.0), (7.0, 0.0), (3.5, 4.0)], 0.0)]);
     for py in -1..6 {
         for px in -1..9 {
             let cov = (0.5 - tri.d(px as f32 + 0.5, py as f32 + 0.5)).clamp(0.0, 1.0);
-            put(c, ax + px, ay + py, Rgba::gray(if enabled { 0x6A } else { 0x39 }), cov);
+            put(c, ax + px, ay + py, theme::g(if enabled { 0x6A } else { 0x39 }), cov);
         }
     }
 }
@@ -198,14 +199,14 @@ pub fn edit(c: &mut Canvas, r: R, value: &str, hint: &str, enabled: bool, focuse
     c.push_clip(r.shrink(2));
     if value.is_empty() && !focused {
         let tw = text::measure(hint, FONT).0 as i32;
-        c.text(hint, FONT, r.x + (r.w - tw) / 2, ty, Rgba::gray(if enabled { 0x8F } else { 0x41 }), Hint::ClearType);
+        c.text(hint, FONT, r.x + (r.w - tw) / 2, ty, theme::g(if enabled { 0x8F } else { 0x41 }), Hint::ClearType);
     } else {
         let tw = text::measure(value, FONT).0 as i32;
         // 文字过长时显示末尾
         let x = (r.x + 4).min(r.right() - 6 - tw);
-        c.text(value, FONT, x, ty, Rgba::gray(if enabled { 0xE0 } else { 0x41 }), Hint::ClearType);
+        c.text(value, FONT, x, ty, theme::g(if enabled { 0xE0 } else { 0x41 }), Hint::ClearType);
         if focused {
-            c.fill(R::new(x + tw + 1, r.y + 4, 1, r.h - 8), Rgba::gray(0xE0));
+            c.fill(R::new(x + tw + 1, r.y + 4, 1, r.h - 8), theme::g(0xE0));
         }
     }
     c.pop_clip();
@@ -218,7 +219,7 @@ pub fn path_box(c: &mut Canvas, r: R, value: &str, hint: &str, enabled: bool, ho
         frame(c, r, true, true);
     }
     let (cx, cy) = (r.right() - 12, r.y + r.h / 2);
-    let col = Rgba::gray(if enabled { 0x8F } else { 0x41 });
+    let col = theme::g(if enabled { 0x8F } else { 0x41 });
     c.fill(R::new(cx - 4, cy, 9, 2), col);
     c.fill(R::new(cx, cy - 4, 2, 9), col);
 }

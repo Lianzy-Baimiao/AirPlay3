@@ -464,10 +464,7 @@ impl App {
             // 电台没有歌词：显示「电台名 - 节目」（连接中、出错时是状态），与桌面歌词相同
             return radio_line(m, super::desklyric::title_of(&n.title, &n.artist));
         }
-        let Some(l) = n.lyrics.as_ref().filter(|l| !l.lines.is_empty() && m.strip) else { return Vec::new() };
-        if !l.synced {
-            return vec![(12, l.lines[0].text.clone(), false)];
-        }
+        let Some(l) = n.lyrics.as_ref().filter(|l| l.synced && !l.lines.is_empty() && m.strip) else { return Vec::new() };
         let t = pos + n.lyric_offset_ms as f64 / 1000.0 + l.offset_ms as f64 / 1000.0;
         // 各句的宽度只在换了歌词时量一次
         let key = n.rev;

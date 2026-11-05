@@ -24,6 +24,12 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_results(serde_json::json!([{
+            "id": "test", "title": "测试歌曲", "artist": "测试歌手", "duration": 226.5, "lrc": SYNCED
+        }]))
+    }
+
+    fn with_results(results: serde_json::Value) -> Self {
         let root = std::env::temp_dir().join(format!("airplay3-lyrics-test-{}-{}", std::process::id(), fastrand::u64(..)));
         std::fs::create_dir_all(&root).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -31,9 +37,7 @@ impl Fixture {
         listener.set_nonblocking(true).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = stop.clone();
-        let body = serde_json::json!([{
-            "id": "test", "title": "测试歌曲", "artist": "测试歌手", "duration": 226.5, "lrc": SYNCED
-        }]).to_string();
+        let body = results.to_string();
         let server = std::thread::spawn(move || {
             while !stopping.load(Ordering::Relaxed) {
                 match listener.accept() {
@@ -89,6 +93,29 @@ impl Fixture {
     }
 }
 
+#[test]
+fn lyric_search_excludes_results_without_valid_timing() {
+    let f = Fixture::with_results(serde_json::json!([
+        {"id": "synced", "title": "歌曲", "lrc": SYNCED},
+        {"id": "plain", "title": "歌曲", "lrc": "没有时间轴的简体歌词\n第二行"},
+        {"id": "broken", "title": "歌曲", "lrc": "[00:bad]一句\n[01:bad]二句\n[02:bad]三句\n[03:bad]四句\n[04:bad]五句"},
+        {"id": "empty", "title": "歌曲", "lrc": "[00:01]\n[00:02]\n[00:03]\n[00:04]\n[00:05]"}
+    ]));
+    let results = online::search(&f.settings.network, &[Provider::LrcApi], "歌曲", "").unwrap();
+    assert_eq!(results.iter().map(|c| c.key.as_str()).collect::<Vec<_>>(), ["synced"], "搜索结果只能包含有有效时间轴和正文的歌词");
+}
+
+#[test]
+fn invalid_download_cannot_overwrite_existing_lyrics() {
+    let f = Fixture::new();
+    let c = online::Candidate { provider: Provider::Lrclib, key: "plain".into(), title: "歌曲".into(), artist: String::new(), album: String::new(), duration: 0.0, lyrics: Some("没有时间轴的简体歌词".into()), cover: String::new() };
+    let path = online::save(SYNCED, &c, &f.root, &c.title, &c.artist).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert!(online::fetch(&f.settings.network, &c).is_err());
+    assert!(online::save(c.lyrics.as_ref().unwrap(), &c, &f.root, &c.title, &c.artist).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before, "异常歌词不得覆盖已保存的同步歌词");
+}
+
 impl Drop for Fixture {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
@@ -102,6 +129,20 @@ impl Drop for Fixture {
 fn automatic_download_replaces_embedded_plain_text() {
     let f = Fixture::new();
     let t = f.track("【音乐资源站】更多打包资源下载");
+    check_automatic_download(&f, t);
+}
+
+#[test]
+fn automatic_download_recovers_legacy_plain_file() {
+    let f = Fixture::new();
+    let mut t = f.track("无内嵌同步歌词");
+    let path = f.root.join("legacy.lrc");
+    std::fs::write(&path, "旧版下载的纯文本\n没有时间轴").unwrap();
+    t.lyric_path = Some(path);
+    check_automatic_download(&f, t);
+}
+
+fn check_automatic_download(f: &Fixture, t: Track) {
     let manual = online::search(&f.settings.network, &[Provider::LrcApi], &t.title, &t.artist).unwrap();
     assert_eq!(online::fetch(&f.settings.network, &manual[0]).unwrap(), SYNCED, "手动能够下载");
     let mut lib = Library::default();

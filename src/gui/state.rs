@@ -89,9 +89,6 @@ pub struct UiState {
     pub lyric_mode: f32,
     pub info: f32,
     pub lyric_idx: Option<usize>,
-    /// 纯文本歌词没有播放时间轴，由用户在歌词面板滚动阅读。
-    pub plain_lyric_scroll: usize,
-    lyric_content: Option<std::sync::Arc<crate::lyrics::Lyrics>>,
     pub list: ListUi,
     pub eq_hot: Option<usize>,
     pub drag: Drag,
@@ -133,8 +130,6 @@ impl UiState {
             lyric_mode: 0.0,
             info: 1.0,
             lyric_idx: None,
-            plain_lyric_scroll: 0,
-            lyric_content: None,
             list: ListUi { list: Some(list), ..Default::default() },
             eq_hot: None,
             drag: Drag::None,
@@ -337,12 +332,13 @@ impl App {
         s.update(snap.playing, snap.current.is_none() && snap.radio.is_none(), &title, &artist, &album, cover.as_deref().map(|v| v.as_slice()));
     }
 
-    /// 封面/歌词：新歌开始时显示大封面 + 信息，约 8 秒后有歌词则切换为小封面 + 歌词
+    /// 封面/歌词：按设置展示封面和信息后切换歌词；0 秒时直接显示已加载的歌词。
     pub(super) fn tick_cover(&mut self, now: Instant) -> bool {
-        let (rev, has_lyrics, idx, lyrics) = {
+        let intro = Duration::from_secs(self.player.core.lock().settings.lyrics.cover_intro_secs.min(60) as u64);
+        let (rev, has_lyrics, idx) = {
             let n = self.now.lock();
-            let has = n.lyrics.as_ref().is_some_and(|l| !l.lines.is_empty());
-            (n.rev, has, if has { n.lyric_index(self.ui.snap.pos) } else { None }, n.lyrics.clone())
+            let has = n.lyrics.as_ref().is_some_and(|l| l.synced && !l.lines.is_empty());
+            (n.rev, has, if has { n.lyric_index(self.ui.snap.pos) } else { None })
         };
         let ui = &mut self.ui;
         let mut dirty = false;
@@ -356,23 +352,21 @@ impl App {
         }
         if ui.now_rev != rev {
             ui.now_rev = rev;
-            let same = match (&ui.lyric_content, &lyrics) {
-                (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
-                (None, None) => true,
-                _ => false,
-            };
-            if !same { ui.plain_lyric_scroll = 0; }
-            ui.lyric_content = lyrics;
             dirty = true;
         }
         let age = now - ui.track_started;
         // 电台字幕出来时马上换成小封面 + 字幕，收起时回到大封面
         let captions = !ui.caption.paras.is_empty() && !ui.caption.notice;
-        let lyric_target = if (has_lyrics && age > Duration::from_secs(8)) || captions { 1.0 } else { 0.0 };
+        let lyric_target = if (has_lyrics && age >= intro) || captions { 1.0 } else { 0.0 };
         // 电台没有歌词：电台名 / 当前节目一直显示
-        let info_target = if age > Duration::from_secs(8) && ui.snap.radio.is_none() { 0.0 } else { 1.0 };
-        dirty |= approach(&mut ui.lyric_mode, lyric_target, 0.06);
-        dirty |= approach(&mut ui.info, info_target, 0.08);
+        let info_target = if age >= intro && ui.snap.radio.is_none() { 0.0 } else { 1.0 };
+        if intro.is_zero() && ui.snap.radio.is_none() {
+            dirty |= ui.lyric_mode != lyric_target || ui.info != info_target;
+            (ui.lyric_mode, ui.info) = (lyric_target, info_target);
+        } else {
+            dirty |= approach(&mut ui.lyric_mode, lyric_target, 0.06);
+            dirty |= approach(&mut ui.info, info_target, 0.08);
+        }
         if ui.lyric_idx != idx {
             ui.lyric_idx = idx;
             dirty = true;

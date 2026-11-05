@@ -42,12 +42,9 @@ impl App {
         }
         let n = self.now.lock();
         let pos = self.ui.snap.pos;
-        let Some(l) = n.lyrics.as_ref().filter(|l| !l.lines.is_empty()) else {
+        let Some(l) = n.lyrics.as_ref().filter(|l| l.synced && !l.lines.is_empty()) else {
             return LineState { idx: None, text: title_of(&n.title, &n.artist), next: String::new(), progress: 0.0, caption: 0, revision: n.rev };
         };
-        if !l.synced {
-            return LineState { idx: None, text: l.lines[0].text.clone(), next: l.lines.get(1).map_or(String::new(), |line| line.text.clone()), progress: 0.0, caption: 0, revision: n.rev };
-        }
         match n.lyric_index(pos) {
             Some(i) => {
                 let line = &l.lines[i];
@@ -230,13 +227,10 @@ fn row(text: &str, slot: f32, align: Align, progress: Option<f32>, alpha: f32) -
     Row { text: text.to_string(), slot, align, progress, alpha }
 }
 
-/// 排版：n 行时每一行画什么。纯文本静态显示前 n 行；没有歌词时显示标题。
+/// 排版：n 行时每一行画什么。`lyr` = 有时间轴的歌词（没有时只显示标题），
 /// `idx` / `progress` = 当前句与填色进度，`scroll` = 多行时的滚动位置（行号）
 fn rows(n: usize, lyr: Option<&Lyrics>, title: &str, idx: Option<usize>, progress: f32, scroll: f32) -> Vec<Row> {
     let Some(l) = lyr else { return vec![row(title, (n as f32 - 1.0) / 2.0, Align::Center, None, 1.0)] };
-    if !l.synced {
-        return l.lines.iter().take(n).enumerate().map(|(i, line)| row(&line.text, i as f32, Align::Center, None, 1.0)).collect();
-    }
     let text = |i: usize| l.lines.get(i).map_or("", |x| x.text.as_str());
     match (n, idx) {
         (1, Some(i)) => vec![row(text(i), 0.0, Align::Center, Some(progress), 1.0)],
@@ -387,7 +381,7 @@ impl App {
         };
         let (lyr, mut title): (Option<Arc<Lyrics>>, String) = {
             let n = self.now.lock();
-            (n.lyrics.clone().filter(|l| !l.lines.is_empty()), title_of(&n.title, &n.artist))
+            (n.lyrics.clone().filter(|l| l.synced && !l.lines.is_empty()), title_of(&n.title, &n.artist))
         };
         // 电台字幕：出错的提示像标题一样显示
         let cv = &self.ui.caption;
@@ -699,9 +693,6 @@ mod tests {
     #[test]
     fn layouts() {
         let l = lyr(&["一", "二", "三", "四", "五"], None);
-        let plain = crate::lyrics::lrc::parse("简体第一句\n简体第二句\n简体第三句");
-        let shown = rows(2, Some(&plain), "歌名", None, 0.0, -1.0);
-        assert_eq!(shown, vec![row("简体第一句", 0.0, Align::Center, None, 1.0), row("简体第二句", 1.0, Align::Center, None, 1.0)]);
         // 没有歌词：只有标题，居中
         let r = rows(3, None, "歌名 - 歌手", None, 0.0, -1.0);
         assert_eq!((r.len(), r[0].slot, r[0].align), (1, 1.0, Align::Center));

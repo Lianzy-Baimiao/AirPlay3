@@ -23,15 +23,15 @@ pub struct Lyrics {
 /// 解析 `mm:ss.xx` / `mm:ss:xx` / `mm:ss`。
 fn parse_time(tag: &str) -> Option<f64> {
     let (m, rest) = tag.split_once(':')?;
-    let m: f64 = m.trim().parse().ok().filter(|v: &f64| *v >= 0.0)?;
+    let m: f64 = m.trim().parse().ok().filter(|v: &f64| v.is_finite() && *v >= 0.0 && v.fract() == 0.0)?;
     let (s, frac) = match rest.find(['.', ':']) {
         Some(i) => (&rest[..i], &rest[i + 1..]),
         None => (rest, ""),
     };
-    let s: f64 = s.trim().parse().ok()?;
+    let s: f64 = s.trim().parse().ok().filter(|v: &f64| v.is_finite() && (0.0..60.0).contains(v) && v.fract() == 0.0)?;
     let frac = if frac.is_empty() { 0.0 } else {
         let digits: String = frac.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if digits.is_empty() { return None; }
+        if digits.is_empty() || digits.len() != frac.len() { return None; }
         digits.parse::<f64>().ok()? / 10f64.powi(digits.len() as i32)
     };
     Some(m * 60.0 + s + frac)

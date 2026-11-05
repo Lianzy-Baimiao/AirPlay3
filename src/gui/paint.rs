@@ -11,11 +11,10 @@ pub fn fmt_total(secs: f64) -> String {
 
 impl App {
     pub fn paint(&mut self, pane: Pane, c: &mut Canvas) {
-        let (title, artist, album, cover_img, lines, plain) = {
+        let (title, artist, album, cover_img, lines) = {
             let n = self.now.lock();
             let lines: Vec<String> = n.lyrics.as_ref().map_or(Vec::new(), |l| l.lines.iter().map(|x| x.text.clone()).collect());
-            let plain = n.lyrics.as_ref().is_some_and(|l| !l.synced && !l.lines.is_empty());
-            (n.title.clone(), n.artist.clone(), n.album.clone(), n.cover.as_ref().map(|c| (c.rgba.clone(), c.size)), lines, plain)
+            (n.title.clone(), n.artist.clone(), n.album.clone(), n.cover.as_ref().map(|c| (c.rgba.clone(), c.size)), lines)
         };
         let cov = cover_img.as_ref().map(|(px, s)| (px.as_slice(), s[0] as u32, s[1] as u32));
         let ui = &self.ui;
@@ -51,7 +50,6 @@ impl App {
                     active: s.current.is_some() || s.radio.is_some(),
                     lines: &lines,
                     current: ui.lyric_idx,
-                    plain_start: plain.then_some(ui.plain_lyric_scroll),
                     captions: if ui.caption.notice { &[] } else { &ui.caption.paras },
                     lyric_mode: ui.lyric_mode,
                     info: ui.info,

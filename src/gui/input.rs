@@ -310,7 +310,6 @@ impl App {
             return;
         }
         match pane {
-            Pane::Cover if self.scroll_plain_lyrics(delta) => self.dirty(Pane::Cover),
             // 左边一栏放不下时，在它上面滚动的是这一栏
             Pane::List if self.list_layout().tabs.contains(x, y) && self.max_tab_scroll() > 0 => {
                 let max = self.max_tab_scroll();
@@ -324,14 +323,6 @@ impl App {
                 self.dirty(Pane::Bar);
             }
         }
-    }
-
-    pub(super) fn scroll_plain_lyrics(&mut self, delta: i32) -> bool {
-        if !self.ui.caption.paras.is_empty() { return false; }
-        let now = self.now.lock();
-        let Some(l) = now.lyrics.as_ref().filter(|l| !l.synced && !l.lines.is_empty()) else { return false; };
-        self.ui.plain_lyric_scroll = (self.ui.plain_lyric_scroll as i64 - delta as i64 * 3 / 120).clamp(0, l.lines.len() as i64 - 1) as usize;
-        true
     }
 
     pub fn on_char(&mut self, ch: u32) {
