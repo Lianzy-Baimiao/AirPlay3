@@ -61,8 +61,14 @@ mod tests {
     fn time_format() {
         assert_eq!(fmt_time(0.0), "0:00");
         assert_eq!(fmt_time(65.9), "1:05");
+        assert_eq!(fmt_time(3599.9), "59:59");
+        assert_eq!(fmt_time(3600.0), "1:00:00");
         assert_eq!(fmt_time(3725.0), "1:02:05");
+        assert_eq!(fmt_time(36000.0), "10:00:00");
+        assert_eq!(fmt_time(86400.0), "24:00:00");
+        assert_eq!(fmt_time(-1.0), "0:00");
         assert_eq!(fmt_time(f64::NAN), "0:00");
+        assert_eq!(fmt_time(f64::INFINITY), "0:00");
     }
 
     #[test]

@@ -361,7 +361,8 @@ impl App {
     }
 
     pub fn paint_minibar(&mut self) {
-        use super::panels::bar::{FONT_SLOGAN, SLOGANS, fmt_time};
+        use super::panels::bar::{FONT_SLOGAN, SLOGANS};
+        use crate::util::fmt_time;
         let (playing, vol, muted, pos, dur, slogan) = (self.ui.snap.playing, self.ui.snap.volume, self.ui.snap.muted, self.ui.snap.pos, self.ui.snap.dur, self.ui.slogan);
         // 歌词条要画的几句：(左边的 x, 文字, 是不是当前句)
         let lines = self.ticker_lines(pos);
@@ -372,8 +373,10 @@ impl App {
         let c = &mut m.top.canvas;
         strip(c, h0);
         // 平时：已播放时间（有歌曲时）+ 标语；悬停时时间淡出、标语变淡，音量和按钮淡入
+        let elapsed = fmt_time(pos);
+        let slogan_x = 56.max(10 + elapsed.len() as i32 * 7 + 11);
         if dur > 0.0 && h0 < 1.0 {
-            c.num6x8(&fmt_time(pos), 10, 8, Rgba(207, 207, 207, 128).alpha(((1.0 - h0) * 255.0) as u8));
+            c.num6x8(&elapsed, 10, 8, Rgba(207, 207, 207, 128).alpha(((1.0 - h0) * 255.0) as u8));
         }
         let text_a = 255.0 * (0.25 + 0.75 * (1.0 - h0));
         let halo = |a: f32| Rgba(16, 16, 16, (a * 0.8) as u8);
@@ -381,8 +384,8 @@ impl App {
         let k = slogan.clamp(0.0, 1.0);
         let off = (k * 18.0).round() as i32;
         let (a0, a1) = ((1.0 - k) * text_a, k * text_a);
-        c.glow_text(SLOGANS[0], FONT_SLOGAN, 56, 5 - off, Rgba::gray(235).alpha(a0 as u8), halo(a0), 3);
-        c.glow_text(SLOGANS[1], FONT_SLOGAN, 56, 23 - off, Rgba::gray(235).alpha(a1 as u8), halo(a1), 3);
+        c.glow_text(SLOGANS[0], FONT_SLOGAN, slogan_x, 5 - off, Rgba::gray(235).alpha(a0 as u8), halo(a0), 3);
+        c.glow_text(SLOGANS[1], FONT_SLOGAN, slogan_x, 23 - off, Rgba::gray(235).alpha(a1 as u8), halo(a1), 3);
         c.pop_clip();
         if h0 > 0.0 {
             let a = (h0 * 255.0) as u8;

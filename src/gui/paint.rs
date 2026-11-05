@@ -3,11 +3,7 @@
 use super::app::{App, Pane};
 use super::canvas::Canvas;
 use super::panels::{bar, cover, eq, playlist};
-
-pub fn fmt_total(secs: f64) -> String {
-    let s = secs.max(0.0) as u64;
-    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
-}
+use crate::util::fmt_time;
 
 impl App {
     pub fn paint(&mut self, pane: Pane, c: &mut Canvas) {
@@ -109,7 +105,7 @@ impl App {
                 (
                     t.map_or(String::new(), |t| t.display_title()),
                     t.map_or(String::new(), |t| t.display_artist().to_string()),
-                    t.map_or(String::new(), |t| bar::fmt_time(t.duration)),
+                    t.map_or(String::new(), |t| fmt_time(t.duration)),
                     ui.snap.current == Some(*id),
                     l.selected.contains(id),
                 )
@@ -119,7 +115,7 @@ impl App {
         let rows: Vec<playlist::Row> =
             data.iter().map(|(t, a, d, p, s)| playlist::Row { title: t, artist: a, duration: d, playing: *p, selected: *s }).collect();
         let tab_refs: Vec<(&str, bool)> = tabs.iter().map(|(id, name)| (name.as_str(), Some(*id) == l.list)).collect();
-        let footer = format!("{} / {}", l.ids.len(), fmt_total(total));
+        let footer = format!("{} / {}", l.ids.len(), fmt_time(total));
         let m = playlist::PlaylistModel {
             tabs: &tab_refs,
             rows: &rows,

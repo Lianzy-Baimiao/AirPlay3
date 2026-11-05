@@ -258,7 +258,7 @@ impl App {
     pub fn paint_search(&mut self) {
         let info = self.info_found();
         let Some(s) = self.search.as_mut() else { return };
-        let durs: Vec<String> = s.results.iter().map(|r| super::panels::bar::fmt_time(r.duration)).collect();
+        let durs: Vec<String> = s.results.iter().map(|r| crate::util::fmt_time(r.duration)).collect();
         let rows: Vec<ResultRow> = s.results.iter().zip(&durs).map(|(r, d)| ResultRow { title: &r.title, artist: &r.artist, duration: d, source: r.provider }).collect();
         fn pic(p: &Option<(Vec<u8>, u32, u32)>) -> Option<Pic<'_>> {
             p.as_ref().map(|(px, w, h)| Pic { rgba: px, w: *w, h: *h })

@@ -6,6 +6,7 @@ use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::Font;
 use crate::gui::theme;
 use crate::skin::icons;
+use crate::util::fmt_time;
 
 /// 默认宽度；原版可左右拖动调整宽度（WM_GETMINMAXINFO：284 ~ 804），高度固定
 pub const W: i32 = 304;
@@ -25,21 +26,29 @@ pub struct Layout {
     pub mode: R,
     /// 右侧时间的 x
     pub time_x: i32,
+    /// 左侧已播放时间的右边缘
+    pub elapsed_right: i32,
 }
 
 impl Layout {
-    pub fn of(w: i32) -> Layout {
+    pub fn of(w: i32, pos: f64, dur: f64) -> Layout {
         let d = w - W;
         let c = d / 2;
         let rx = |x: i32, y: i32, s: i32| R::new(x + d, y, s, s);
+        // 给小时位留出空间；按两侧较长的时间布局，悬停切换时进度条不跳动。
+        let time_w = fmt_time(pos).len().max(fmt_time(dur).len()) as i32 * 7;
+        let time_x = (232 + d).min(275 + d - time_w);
+        let elapsed_right = 73.max(VOLUME.right() + 6 + time_w);
+        let track_x = elapsed_right + 6;
         Layout {
             frame: R::new(2, 2, w - 4, 64),
-            track: R::new(79, 53, 144 + d, 4),
+            track: R::new(track_x, 53, (time_x - 9 - track_x).max(8), 4),
             big: [R::new(101 + c, 13, 32, 32), R::new(136 + c, 13, 32, 32), R::new(171 + c, 13, 32, 32)],
             win_btns: [rx(238, 4, 15), rx(252, 4, 15), rx(267, 4, 15), rx(282, 4, 15)],
             toggles: [rx(234, 25, 16), rx(255, 25, 16), rx(275, 25, 16)],
             mode: rx(281, 46, 16),
-            time_x: 232 + d,
+            time_x,
+            elapsed_right,
         }
     }
 }
@@ -89,11 +98,11 @@ pub struct BarModel<'a> {
 
 pub const SLOGANS: [&str; 2] = ["乐声飞扬 聆听彼此", "link between souls"];
 
-pub fn hit(w: i32, x: i32, y: i32, hovering: bool) -> Hot {
+pub fn hit(w: i32, pos: f64, dur: f64, x: i32, y: i32, hovering: bool) -> Hot {
     if !hovering {
         return if COVER.contains(x, y) { Hot::Cover } else { Hot::None };
     }
-    let l = Layout::of(w);
+    let l = Layout::of(w, pos, dur);
     let t = l.track;
     let checks = [
         (VOLUME.shrink(-3), Hot::Volume),
@@ -150,14 +159,9 @@ fn knob(c: &mut Canvas, cx: i32, cy: i32, bright: f32) {
     });
 }
 
-pub fn fmt_time(t: f64) -> String {
-    let s = t.max(0.0) as u64;
-    format!("{}:{:02}", s / 60, s % 60)
-}
-
 pub fn paint(c: &mut Canvas, m: &BarModel) {
     c.clear();
-    let lay = Layout::of(c.w);
+    let lay = Layout::of(c.w, m.pos, m.dur);
     background(c, lay.frame, m.hover);
     let idle = 1.0 - m.hover;
     // 封面（半透明：空闲时约 56%，悬停时更淡，被控制按钮盖住）
@@ -209,7 +213,7 @@ pub fn paint(c: &mut Canvas, m: &BarModel) {
         let a = (m.hover * 255.0) as u8;
         let el = fmt_time(m.pos);
         let w = el.chars().count() as i32 * 7;
-        c.num6x8(&el, 73 - w, 51, tc.alpha(a));
+        c.num6x8(&el, lay.elapsed_right - w, 51, tc.alpha(a));
         c.num6x8(&fmt_time(m.dur), lay.time_x, 51, tc.alpha(a));
         controls(c, m, &lay, a);
     }
@@ -248,4 +252,29 @@ fn controls(c: &mut Canvas, m: &BarModel, l: &Layout, a: u8) {
         RepeatOne => icons::MODE_ONE,
     };
     c.icon(mode, l.mode.x, l.mode.y, hot(Hot::Mode));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hour_times_fit_and_track_hit_follows_layout() {
+        for width in [MIN_W, W, MAX_W] {
+            for (pos, dur) in [(83.0, 269.0), (3599.0, 3600.0), (3909.0, 7200.0), (36000.0, 86399.0), (360000.0, 720000.0)] {
+                let l = Layout::of(width, pos, dur);
+                let elapsed_w = fmt_time(pos).len() as i32 * 7;
+                let total_w = fmt_time(dur).len() as i32 * 7;
+                assert!(l.elapsed_right - elapsed_w >= VOLUME.right() + 6);
+                assert!(l.elapsed_right + 6 <= l.track.x);
+                assert!(l.track.w > 8);
+                assert!(l.track.right() + 9 <= l.time_x);
+                assert!(l.time_x + elapsed_w.max(total_w) + 6 <= l.mode.x);
+                assert_eq!(hit(width, pos, dur, l.track.x, l.track.y, true), Hot::Track);
+                assert_eq!(hit(width, pos, dur, l.track.right(), l.track.y, true), Hot::Track);
+                assert_eq!(hit(width, pos, dur, l.time_x, l.track.y, true), Hot::None);
+                assert_eq!(hit(width, pos, dur, l.mode.x + 2, l.mode.y + 2, true), Hot::Mode);
+            }
+        }
+    }
 }

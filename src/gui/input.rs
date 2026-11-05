@@ -40,7 +40,7 @@ impl App {
         self.ui.hover[Self::idx(pane)] = true;
         match pane {
             Pane::Bar => {
-                let h = bar::hit(self.sizes.bar_w, x, y, self.ui.bar_hover > 0.5);
+                let h = bar::hit(self.sizes.bar_w, self.ui.snap.pos, self.ui.snap.dur, x, y, self.ui.bar_hover > 0.5);
                 if h != self.ui.bar_hot {
                     self.ui.bar_hot = h;
                     self.dirty(Pane::Bar);
@@ -119,7 +119,7 @@ impl App {
             return self.start_move(pane);
         }
         match pane {
-            Pane::Bar => match bar::hit(self.sizes.bar_w, x, y, self.ui.bar_hover > 0.5) {
+            Pane::Bar => match bar::hit(self.sizes.bar_w, self.ui.snap.pos, self.ui.snap.dur, x, y, self.ui.bar_hover > 0.5) {
                 Hot::Prev => self.player.prev(),
                 Hot::PlayPause => self.player.toggle_pause(),
                 Hot::Next => self.player.next(),
@@ -175,7 +175,7 @@ impl App {
     }
 
     fn seek_at(&mut self, x: i32) {
-        let track = bar::Layout::of(self.sizes.bar_w).track;
+        let track = bar::Layout::of(self.sizes.bar_w, self.ui.snap.pos, self.ui.snap.dur).track;
         let t = ((x - track.x) as f64 / track.w as f64).clamp(0.0, 1.0);
         if self.ui.snap.dur > 0.0 {
             self.player.seek(t * self.ui.snap.dur);

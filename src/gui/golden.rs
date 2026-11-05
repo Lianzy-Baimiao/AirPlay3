@@ -75,6 +75,22 @@ fn golden() {
         save(&dir, name, &c);
     }
 
+    // 超过一小时：检查最窄播放条、小时位增加和悬停时两侧时间的间距。
+    for (name, pos, dur, hover) in [
+        ("bar_hour_boundary", 3599.0, 3600.0, 1.0),
+        ("bar_hour_idle", 3909.0, 7200.0, 0.0),
+        ("bar_hour_hover", 3909.0, 7200.0, 1.0),
+        ("bar_ten_hours_hover", 36000.0, 86399.0, 1.0),
+        ("bar_hundred_hours_hover", 360000.0, 720000.0, 1.0),
+    ] {
+        let mut c = Canvas::with_scale(bar::MIN_W, bar::H, scale);
+        let mut m = bar_model(None, hover, bar::Hot::None, 0.0);
+        m.pos = pos;
+        m.dur = dur;
+        bar::paint(&mut c, &m);
+        save(&dir, name, &c);
+    }
+
     // 歌词图片
     let lines: Vec<String> = ["故事的小黄花", "从出生那年就飘着", "童年的荡秋千", "随记忆一直晃到现在"].iter().map(|s| s.to_string()).collect();
     for (name, active, cover, lyric_mode, info, strip) in [
@@ -109,7 +125,7 @@ fn golden() {
 
     // 音乐列表
     let rows: Vec<playlist::Row> = (0..12)
-        .map(|i| playlist::Row { title: ["晴天", "七里香", "A Very Long English Song Title"][i % 3], artist: "周杰伦", duration: "4:29", playing: i == 2, selected: i == 4 })
+        .map(|i| playlist::Row { title: ["晴天", "七里香", "A Very Long English Song Title"][i % 3], artist: "周杰伦", duration: ["4:29", "1:05:09", "12:34:56"][i % 3], playing: i == 2, selected: i == 4 })
         .collect();
     let tabs = [("默认", true), ("试听列表", false), ("我喜欢", false)];
     for (name, hover, search, focus, caret) in [("list", Some(3), "", false, false), ("list_search", None, "晴", true, true)] {
