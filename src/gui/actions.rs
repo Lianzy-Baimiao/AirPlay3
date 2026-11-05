@@ -10,6 +10,7 @@ use crate::library::{ListKind, SortBy};
 use crate::skin::icons;
 
 pub enum AsyncMsg {
+    UpdateChecked(u64, Result<crate::updates::Release, String>),
     Files(Vec<std::path::PathBuf>, crate::library::ListId),
     FolderList(std::path::PathBuf),
     /// 歌词搜索结果：(结果, 是否放宽为只按标题)
@@ -458,6 +459,7 @@ impl App {
     pub fn drain_async(&mut self) {
         while let Ok(m) = self.async_rx.try_recv() {
             match m {
+                AsyncMsg::UpdateChecked(seq, result) => self.on_update_checked(seq, result),
                 AsyncMsg::FolderList(folder) => {
                     let name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "新建列表".into());
                     self.finish_list_name(None, &name);

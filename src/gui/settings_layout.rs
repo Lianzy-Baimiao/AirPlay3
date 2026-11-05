@@ -3,7 +3,7 @@
 //! 原版没有的设置（独占模式、歌词来源、LrcAPI、桌面歌词等）按原版的样子补在空着的地方。
 
 use super::panels::pill::Tone;
-use super::settings_model::{Field, Key, Swatch, TAB_ASSOC, TAB_AUDIO, TAB_COLOR, TAB_DESK, TAB_GENERAL, TAB_HOTKEYS, TAB_LYRICS, TAB_NETWORK};
+use super::settings_model::{Field, Key, Swatch, TAB_ABOUT, TAB_ASSOC, TAB_AUDIO, TAB_COLOR, TAB_DESK, TAB_GENERAL, TAB_HOTKEYS, TAB_LYRICS, TAB_NETWORK};
 use crate::config::HotkeyAction;
 use crate::gui::canvas::R;
 
@@ -15,6 +15,10 @@ pub enum Btn {
     BrowseLyricDir,
     ResetTaskbarPos,
     ResetColors,
+    ProjectHome,
+    ProjectIssues,
+    CheckUpdates,
+    ViewRelease,
     /// 改这个热键（等着按键）
     Capture(HotkeyAction),
 }
@@ -64,6 +68,8 @@ pub enum Widget {
     /// 灰色方块的勾选框
     Check(Key, &'static str),
     Label(&'static str),
+    /// 只读文字（State.value），支持换行。
+    Text,
     /// 居中的标题
     Title(&'static str),
     Drop(Choice),
@@ -240,6 +246,22 @@ pub fn layout(tab: usize) -> Vec<Item> {
             key(pr(380, 178, 485), Grey, "透明雾化", Key::Frost),
             it(R::new(110, 214, 386, 3), Groove(0x32)),
             pill(pr(126, 346, 485), Grey, "恢复默认颜色", Toggle::Act(Btn::ResetColors)),
+        ],
+        TAB_ABOUT => vec![
+            it(R::new(126, 36, 350, 22), Title("AirPlay3 · Rust 重写版")),
+            it(R::new(126, 66, 350, 18), Text),
+            it(R::new(126, 96, 350, 18), Label("让经典的本地音乐播放器，在今天继续好好用。")),
+            it(R::new(126, 118, 350, 18), Label("「经典软件回归计划」的第一步。")),
+            it(R::new(126, 140, 350, 18), Label("以 Rust 重写，致敬原版 AirPlay3。")),
+            it(R::new(126, 162, 350, 18), Label("项目维护：Lianzy-Baimiao")),
+            pill(pr(126, 190, 296), Grey, "GitHub 项目主页", Toggle::Act(Btn::ProjectHome)),
+            pill(pr(306, 190, 476), Grey, "问题反馈", Toggle::Act(Btn::ProjectIssues)),
+            it(R::new(126, 226, 350, 3), Groove(0x32)),
+            it(R::new(126, 240, 350, 18), Title("版本更新")),
+            it(R::new(126, 268, 350, 40), Text),
+            pill(pr(126, 318, 296), Teal, "", Toggle::Act(Btn::CheckUpdates)),
+            pill(pr(306, 318, 476), Grey, "查看发行版", Toggle::Act(Btn::ViewRelease)),
+            it(R::new(126, 350, 350, 18), Label("仅手动检查；下载和安装由你决定。")),
         ],
         _ => Vec::new(),
     }

@@ -9,7 +9,7 @@ use crate::library::{Library, Track};
 use crate::lyrics::{lrc, online::{self, Candidate, Provider}};
 use crate::player::{Player, nowplaying::{Link, NowPlaying}};
 
-fn headless() -> (App, mpsc::Receiver<()>) {
+pub(super) fn headless() -> (App, mpsc::Receiver<()>) {
     let root = std::env::temp_dir().join(format!("airplay3-lyrics-ui-{}", fastrand::u64(..)));
     let mut settings = Settings::default();
     settings.lyrics.embedded_pic = false;

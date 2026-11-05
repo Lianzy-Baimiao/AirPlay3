@@ -3,7 +3,7 @@
 use crate::config::{ProxyKind, Settings};
 
 /// 分页（与原版相同的顺序；原版的「音乐分享」是 MSN Messenger 签名，早已停用，换成「桌面歌词」）
-pub const TABS: [&str; 8] = ["基本设置", "音频设备", "网络连接", "歌词图片", "桌面歌词", "文件关联", "全局热键", "颜色透明"];
+pub const TABS: [&str; 9] = ["基本设置", "音频设备", "网络连接", "歌词图片", "桌面歌词", "文件关联", "全局热键", "颜色透明", "关于"];
 pub const TAB_GENERAL: usize = 0;
 pub const TAB_AUDIO: usize = 1;
 pub const TAB_NETWORK: usize = 2;
@@ -14,6 +14,7 @@ pub const TAB_ASSOC: usize = 5;
 pub const TAB_HOTKEYS: usize = 6;
 /// 整体颜色、焦点颜色、边框透明、透明雾化
 pub const TAB_COLOR: usize = 7;
+pub const TAB_ABOUT: usize = 8;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Key {

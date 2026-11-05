@@ -1,6 +1,7 @@
 //! 原生界面：复刻原版 AirPlay3 的分层窗口 + GDI+ 外观（图标、标志等在 `skin` 里自己画）。
 
 mod actions;
+mod about;
 mod desklyric;
 #[cfg(test)]
 mod golden;

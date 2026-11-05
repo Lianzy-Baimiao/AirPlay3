@@ -120,6 +120,13 @@ pub fn paint(c: &mut Canvas, m: &SettingsModel) {
             Widget::Label(s) => {
                 c.text(s, FONT, r.x, r.y + (r.h - 16) / 2 + 1, theme::g(0xA0), Hint::ClearType);
             }
+            Widget::Text => {
+                c.push_clip(r);
+                for (line, s) in st.value.lines().enumerate() {
+                    c.text(s, FONT, r.x, r.y + line as i32 * 19, theme::g(0xD0), Hint::ClearType);
+                }
+                c.pop_clip();
+            }
             Widget::Title(s) => {
                 let tw = text::measure(s, FONT).0 as i32;
                 c.text(s, FONT, r.x + (r.w - tw) / 2, r.y, theme::g(0xBB), Hint::ClearType);

@@ -13,3 +13,4 @@ pub mod radio;
 pub mod search;
 pub mod skin;
 pub mod util;
+pub mod updates;

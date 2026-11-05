@@ -39,6 +39,7 @@ pub struct SettingsWin {
     pub anim: Option<Anim>,
     /// 开着「配置文件存放位置」时主体变暗（原版：约 0.47 秒里渐渐盖上 75% 的主体颜色）；Out = 正在变亮回来
     pub dim: Option<Anim>,
+    pub update: super::about::UpdateState,
 }
 
 /// 变暗的程度（0 ~ 1）：照原版实测，先快后慢地变暗；关掉对话框时 0.2 秒变亮回来
@@ -117,6 +118,7 @@ impl App {
             anim: Some(Anim::open(0.0)),
             // 「配置文件存放位置」还开着：一打开就是暗的
             dim: self.cfgdir.is_some().then(|| Anim { t0: std::time::Instant::now() - std::time::Duration::from_secs(1), ..Anim::open(0.0) }),
+            update: Default::default(),
         });
         self.paint_settings();
         if let Some(s) = &self.settings_win {
@@ -149,6 +151,7 @@ impl App {
     /// 当前分页的控件和它们现在的状态
     fn settings_items(&self) -> Vec<(Item, State)> {
         let Some(sw) = self.settings_win.as_ref() else { return Vec::new() };
+        if sw.tab == model::TAB_ABOUT { return super::about::items(&sw.update); }
         let g = self.player.core.lock();
         let s = &g.settings;
         let hk = &s.hotkeys;
@@ -349,6 +352,13 @@ impl App {
     fn press_button(&mut self, b: Btn) {
         let p = self.player.clone();
         match b {
+            Btn::ProjectHome => return crate::platform::shell::open(crate::updates::PROJECT_URL),
+            Btn::ProjectIssues => return crate::platform::shell::open(crate::updates::ISSUES_URL),
+            Btn::CheckUpdates => return self.check_updates(),
+            Btn::ViewRelease => {
+                if let Some(sw) = self.settings_win.as_ref() { crate::platform::shell::open(sw.update.release_url()); }
+                return;
+            }
             Btn::DataDir => self.open_cfgdir(),
             Btn::BrowseLyricDir => self.browse_lyric_dir(),
             Btn::ResetTaskbarPos => self.act(Act::TaskbarReset),
@@ -474,7 +484,7 @@ fn modifiers() -> (bool, bool, bool, bool) {
 
 /// 能点的控件（文字、分隔线不算）
 fn clickable(w: &Widget) -> bool {
-    !matches!(w, Widget::Label(_) | Widget::Title(_) | Widget::Groove(_))
+    !matches!(w, Widget::Label(_) | Widget::Title(_) | Widget::Text | Widget::Groove(_))
 }
 
 impl App {
@@ -670,5 +680,49 @@ impl App {
         }
         self.player.save(false);
         Some(LRESULT(0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::about::UpdateState;
+
+    #[test]
+    fn about_tab_click_and_async_result_reach_settings() {
+        let (mut app, _) = super::super::lyrics_tests::headless();
+        app.settings_win = Some(SettingsWin {
+            win: Popup::offscreen(sp::W, sp::H), tab: 0, focus: None, edit: None,
+            hover: None, hover_tab: None, hover_cell: None, inside: true, capturing: None,
+            devices: Vec::new(), assoc: Vec::new(), status: String::new(), drag: None,
+            slider_drag: false, anim: None, dim: None, update: Default::default(),
+        });
+        let click = |app: &mut App, r: crate::gui::R| {
+            let x = super::super::scale::to_px(r.x + r.w / 2);
+            let y = super::super::scale::to_px(r.y + r.h / 2);
+            assert!(app.settings_msg(HWND::default(), WM_LBUTTONDOWN, WPARAM(0), LPARAM(((y << 16) | x) as isize)).is_some());
+        };
+        click(&mut app, sp::tab_rect(model::TAB_ABOUT));
+        let sw = app.settings_win.as_ref().unwrap();
+        assert_eq!(sw.tab, model::TAB_ABOUT);
+        assert!(matches!(sw.update, UpdateState::Idle), "切换页签不能自动检查更新");
+        assert!(app.settings_items().iter().any(|(_, s)| s.value.contains(crate::updates::VERSION)));
+        app.settings_win.as_mut().unwrap().update = UpdateState::Checking(42);
+        let button = app.settings_items().into_iter().find(|(it, _)| matches!(it.w, Widget::Pill { act: Toggle::Act(Btn::CheckUpdates), .. })).unwrap();
+        assert!(!button.1.enabled);
+        click(&mut app, button.0.r); // disabled: 不得再次启动联网线程。
+        assert!(matches!(app.settings_win.as_ref().unwrap().update, UpdateState::Checking(42)));
+        app.async_tx.send(super::super::actions::AsyncMsg::UpdateChecked(41, Err("旧请求".into()))).unwrap();
+        app.drain_async();
+        assert!(matches!(app.settings_win.as_ref().unwrap().update, UpdateState::Checking(42)));
+        let result = crate::updates::Release { tag: format!("v{}", crate::updates::VERSION), comparison: std::cmp::Ordering::Equal, url: crate::updates::RELEASES_URL.into() };
+        app.async_tx.send(super::super::actions::AsyncMsg::UpdateChecked(42, Ok(result))).unwrap();
+        app.drain_async();
+        assert!(app.settings_items().iter().any(|(_, s)| s.value.contains("当前已是最新正式版")));
+        assert!(app.settings_items().iter().any(|(it, s)| matches!(it.w, Widget::Pill { act: Toggle::Act(Btn::CheckUpdates), .. }) && s.enabled));
+        app.settings_win = None;
+        app.async_tx.send(super::super::actions::AsyncMsg::UpdateChecked(42, Err("窗口已关闭".into()))).unwrap();
+        app.drain_async();
+        assert!(app.settings_win.is_none(), "完成请求不能重新打开已关闭的配置窗口");
     }
 }

@@ -189,17 +189,42 @@ fn golden() {
         save(&dir, name, &c);
     }
 
-    // 配置：8 个分页
+    // 配置：全部分页
     for tab in 0..super::settings_model::TABS.len() {
-        let items: Vec<(lay::Item, settings::State)> = lay::layout(tab)
+        let items: Vec<(lay::Item, settings::State)> = if tab == super::settings_model::TAB_ABOUT {
+            super::about::items(&Default::default())
+        } else { lay::layout(tab)
             .into_iter()
             .enumerate()
             .map(|(i, it)| (it, settings::State { on: i % 2 == 0, enabled: i % 5 != 4, dim: i % 7 == 6, value: "示例 Value 123".into(), focused: i == 3 }))
-            .collect();
+            .collect() };
         let mut c = Canvas::with_scale(settings::W, settings::H, scale);
-        settings::paint(&mut c, &settings::SettingsModel { tab, items: &items, hover: Some(1), hover_tab: Some((tab + 1) % 8), hover_cell: Some(2), strip: 1.0 });
+        settings::paint(&mut c, &settings::SettingsModel { tab, items: &items, hover: Some(1), hover_tab: Some((tab + 1) % super::settings_model::TABS.len()), hover_cell: Some(2), strip: 1.0 });
         save(&dir, &format!("settings_{tab}"), &c);
     }
+
+    // 关于页的真实状态，检查配色、文案和按钮的启用状态。
+    let original = super::theme::get();
+    for (theme_name, body) in [("dark", [0x20, 0x20, 0x20]), ("light", [0xd0, 0xd0, 0xd0]), ("blue", [0x20, 0x30, 0x40]), ("rose", [0xc0, 0x90, 0x90])] {
+        super::theme::set(super::theme::Theme { body, ..original });
+        use super::about::UpdateState;
+        use std::cmp::Ordering;
+        let ready = |tag: &str, comparison| UpdateState::Ready(crate::updates::Release { tag: tag.into(), comparison, url: crate::updates::RELEASES_URL.into() });
+        for (name, state) in [
+            ("idle", UpdateState::Idle),
+            ("checking", UpdateState::Checking(1)),
+            ("new", ready("v3.28.0", Ordering::Greater)),
+            ("latest", ready(&format!("v{}", crate::updates::VERSION), Ordering::Equal)),
+            ("ahead", ready("v3.27.6", Ordering::Less)),
+            ("failed", UpdateState::Failed("连接 GitHub 失败，请检查网络或代理后重试".into())),
+        ] {
+            let items = super::about::items(&state);
+            let mut c = Canvas::with_scale(settings::W, settings::H, scale);
+            settings::paint(&mut c, &settings::SettingsModel { tab: super::settings_model::TAB_ABOUT, items: &items, hover: None, hover_tab: None, hover_cell: None, strip: 1.0 });
+            c.save_png(&dir.join(format!("about_{theme_name}_{name}.png"))).unwrap();
+        }
+    }
+    super::theme::set(original);
 
     // 下载歌词
     let results = [
