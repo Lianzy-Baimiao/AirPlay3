@@ -79,6 +79,21 @@ fn load_lyrics(t: &Track, dirs: &[PathBuf]) -> Option<(Lyrics, LyricSource)> {
     crate::lyrics::load(&req)
 }
 
+/// 自动找到的纯文本可能只是资源广告，仍应尝试补充同步歌词；搜索失败时保留原文。
+/// 已有同步歌词、用户指定的文件和取消关联都尊重原来的选择。
+fn should_download_lyrics(t: &Track, ls: &LyricSettings, loaded: Option<&(Lyrics, LyricSource)>) -> bool {
+    if !ls.auto_download || !ls.download_lyric || t.lyric_unlinked {
+        return false;
+    }
+    match loaded {
+        None => true,
+        Some((l, source)) => {
+            let linked = matches!(source, LyricSource::File(path) if t.lyric_path.as_ref() == Some(path));
+            !linked && !(l.synced && l.lines.iter().any(|line| !line.text.trim().is_empty()))
+        }
+    }
+}
+
 fn cover_image(raw: Vec<u8>) -> Option<CoverImage> {
     let (w, h, rgba) = decode_rgba(&raw, 640)?;
     Some(CoverImage { size: [w as usize, h as usize], rgba: Arc::new(rgba), raw: Arc::new(raw) })
@@ -163,7 +178,7 @@ fn set_lyrics(now: &SharedNow, id: TrackId, lyr: Option<(Lyrics, LyricSource)>) 
 }
 
 impl Player {
-    /// 曲目改变（或 `force`）时更新正在播放信息，并在后台加载歌词/封面；没有歌词且开启了自动下载时从 LRCLIB 下载。
+    /// 曲目改变（或 `force`）时更新正在播放信息，并在后台加载歌词/封面；开启自动下载时从所选来源补充同步歌词。
     pub fn refresh_now_playing(&self, now: &SharedNow, force: bool) {
         let g = self.core.lock();
         // 听电台时由界面按电台信息更新（gui::radiowin）
@@ -203,7 +218,7 @@ impl Player {
         std::thread::spawn(move || {
             crate::platform::com::init_mta();
             let lyr = load_lyrics(&t, &dirs);
-            let found = lyr.is_some();
+            let download_lyrics = should_download_lyrics(&t, &ls, lyr.as_ref());
             set_lyrics(&now, t.id, lyr);
             let (cover, is_album) = load_cover(&t, &ls, &artist_dir);
             {
@@ -216,7 +231,7 @@ impl Player {
             }
             p.repaint();
             let mut t = t;
-            if !found && ls.auto_download && ls.download_lyric && !t.lyric_unlinked {
+            if download_lyrics {
                 match crate::lyrics::online::best_match(&net, ls.source, &t.display_title(), &t.artist, t.duration) {
                     Ok(Some((c, text))) => match crate::lyrics::online::save(&text, &c, &lyric_dir, &t.display_title(), &t.artist) {
                         // 下载后保存到本地并关联到这首歌，下次直接用本地文件
@@ -233,7 +248,7 @@ impl Player {
                         }
                         Err(e) => log::warn!("保存歌词失败: {e}"),
                     },
-                    Ok(None) => {}
+                    Ok(None) => log::info!("自动下载歌词：未找到匹配的同步歌词（{} / {}）", t.display_title(), t.artist),
                     Err(e) => log::info!("自动下载歌词失败: {e}"),
                 }
             }
@@ -397,6 +412,37 @@ mod tests {
 
     fn cand(title: &str, artist: &str, album: &str, d: f64) -> Candidate {
         Candidate { provider: Provider::LrcApi, key: String::new(), title: title.into(), artist: artist.into(), album: album.into(), duration: d, lyrics: None, cover: String::new() }
+    }
+
+    #[test]
+    fn auto_lyrics_respects_existing_lyrics_and_user_choices() {
+        let mut ls = LyricSettings::default();
+        ls.auto_download = true;
+        ls.download_lyric = true;
+        let mut t = Track::default();
+        let embedded_plain = (crate::lyrics::lrc::parse("资源下载广告"), LyricSource::Embedded);
+        let embedded_synced = (crate::lyrics::lrc::parse("[00:01.00]歌词正文"), LyricSource::Embedded);
+        let empty_synced = (crate::lyrics::lrc::parse("[00:01.00]"), LyricSource::Embedded);
+        let path = PathBuf::from("chosen.lrc");
+        let local_plain = (embedded_plain.0.clone(), LyricSource::File(path.clone()));
+        assert!(should_download_lyrics(&t, &ls, None));
+        assert!(should_download_lyrics(&t, &ls, Some(&embedded_plain)));
+        assert!(should_download_lyrics(&t, &ls, Some(&local_plain)));
+        assert!(should_download_lyrics(&t, &ls, Some(&empty_synced)));
+        assert!(!should_download_lyrics(&t, &ls, Some(&embedded_synced)));
+        // 用户关联的纯文本文件仍然优先，不会被在线结果替换。
+        t.lyric_path = Some(path);
+        assert!(!should_download_lyrics(&t, &ls, Some(&local_plain)));
+        // 关联文件已丢失时仍可补充；主动取消关联时不下载。
+        assert!(should_download_lyrics(&t, &ls, None));
+        t.lyric_unlinked = true;
+        assert!(!should_download_lyrics(&t, &ls, None));
+        t.lyric_unlinked = false;
+        ls.auto_download = false;
+        assert!(!should_download_lyrics(&t, &ls, Some(&embedded_plain)));
+        ls.auto_download = true;
+        ls.download_lyric = false;
+        assert!(!should_download_lyrics(&t, &ls, None));
     }
 
     #[test]
