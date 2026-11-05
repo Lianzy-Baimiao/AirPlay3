@@ -75,6 +75,40 @@ fn golden() {
         save(&dir, name, &c);
     }
 
+    // 时间字体：不同皮肤、缩放及悬停状态，在不透明背景上检查透明播放条的实际观感。
+    let original = super::theme::get();
+    for (name, body, backdrop) in [
+        ("dark", [0x20, 0x20, 0x20], [0x28, 0x2c, 0x30]),
+        ("light", [0xd0, 0xd0, 0xd0], [0xe8, 0xe8, 0xe8]),
+        ("blue", [0x20, 0x30, 0x40], [0x30, 0x40, 0x50]),
+        ("rose", [0xc0, 0x90, 0x90], [0xe0, 0xc8, 0xc8]),
+    ] {
+        super::theme::set(super::theme::Theme { body, ..original });
+        for (zoom, label) in [(1.0, "100"), (1.25, "125"), (1.5, "150"), (2.0, "200"), (3.0, "300")] {
+            let mut sheet = Canvas::with_scale(bar::MIN_W * 2, bar::H * 2, zoom);
+            sheet.fill(R::new(0, 0, sheet.w, sheet.h), Rgba(backdrop[0], backdrop[1], backdrop[2], 255));
+            for (i, (pos, dur, hover)) in [(83.0, 269.0, 0.0), (83.0, 269.0, 1.0), (3909.0, 7200.0, 0.0), (360000.0, 720000.0, 1.0)].into_iter().enumerate() {
+                let mut c = Canvas::with_scale(bar::MIN_W, bar::H, zoom);
+                let mut m = bar_model(None, hover, bar::Hot::None, 0.0);
+                m.pos = pos;
+                m.dur = dur;
+                bar::paint(&mut c, &m);
+                let (ox, oy) = ((i % 2) as i32 * c.pw, (i / 2) as i32 * c.ph);
+                for y in 0..c.ph {
+                    for x in 0..c.pw {
+                        let p = c.px[(y * c.pw + x) as usize];
+                        let dst = &mut sheet.px[((oy + y) * sheet.pw + ox + x) as usize];
+                        for ch in 0..3 {
+                            dst[ch] = (p[ch] as u32 + (dst[ch] as u32 * (255 - p[3] as u32) + 127) / 255).min(255) as u8;
+                        }
+                    }
+                }
+            }
+            sheet.save_png(&dir.join(format!("bar_time_{name}_{label}.png"))).unwrap();
+        }
+    }
+    super::theme::set(original);
+
     // 超过一小时：检查最窄播放条、小时位增加和悬停时两侧时间的间距。
     for (name, pos, dur, hover) in [
         ("bar_hour_boundary", 3599.0, 3600.0, 1.0),

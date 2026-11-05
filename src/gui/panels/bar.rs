@@ -3,7 +3,7 @@
 
 use super::frame;
 use crate::gui::canvas::{Canvas, R, Rgba};
-use crate::gui::text::Font;
+use crate::gui::text::{self, Font, Hint};
 use crate::gui::theme;
 use crate::skin::icons;
 use crate::util::fmt_time;
@@ -36,7 +36,7 @@ impl Layout {
         let c = d / 2;
         let rx = |x: i32, y: i32, s: i32| R::new(x + d, y, s, s);
         // 给小时位留出空间；按两侧较长的时间布局，悬停切换时进度条不跳动。
-        let time_w = fmt_time(pos).len().max(fmt_time(dur).len()) as i32 * 7;
+        let time_w = time_width(&fmt_time(pos)).max(time_width(&fmt_time(dur)));
         let time_x = (232 + d).min(275 + d - time_w);
         let elapsed_right = 73.max(VOLUME.right() + 6 + time_w);
         let track_x = elapsed_right + 6;
@@ -55,6 +55,12 @@ impl Layout {
 
 pub const FONT: Font = Font::px(12.0, false);
 pub const FONT_SLOGAN: Font = Font::px(12.0, false);
+/// 时间用常规字重的平滑字体，按实际缩放重绘，避免像素块放大后显得粗重。
+const FONT_TIME: Font = Font::px(11.0, false);
+
+fn time_width(s: &str) -> i32 {
+    text::measure(s, FONT_TIME).0.ceil() as i32
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Hot {
@@ -205,16 +211,17 @@ pub fn paint(c: &mut Canvas, m: &BarModel) {
         knob(c, kx, track.y + 2, if loaded { 1.0 } else { m.hover });
     }
     // 时间：空闲时在进度条右侧显示已播放时间；悬停时左侧已播放、右侧总时长
-    let tc = Rgba::gray(117).mix(Rgba::gray(230), m.hover);
+    let idle_time = theme::g(133);
+    let tc = idle_time.mix(theme::g(220), m.hover);
     if m.hover < 1.0 && loaded {
-        c.num6x8(&fmt_time(m.pos), lay.time_x, 51, Rgba::gray(117).alpha((idle * 255.0) as u8));
+        c.text(&fmt_time(m.pos), FONT_TIME, lay.time_x, 48, idle_time.alpha((idle * 255.0) as u8), Hint::Gray);
     }
     if m.hover > 0.0 {
         let a = (m.hover * 255.0) as u8;
         let el = fmt_time(m.pos);
-        let w = el.chars().count() as i32 * 7;
-        c.num6x8(&el, lay.elapsed_right - w, 51, tc.alpha(a));
-        c.num6x8(&fmt_time(m.dur), lay.time_x, 51, tc.alpha(a));
+        let w = time_width(&el);
+        c.text(&el, FONT_TIME, lay.elapsed_right - w, 48, tc.alpha(a), Hint::Gray);
+        c.text(&fmt_time(m.dur), FONT_TIME, lay.time_x, 48, tc.alpha(a), Hint::Gray);
         controls(c, m, &lay, a);
     }
 }
@@ -263,8 +270,8 @@ mod tests {
         for width in [MIN_W, W, MAX_W] {
             for (pos, dur) in [(83.0, 269.0), (3599.0, 3600.0), (3909.0, 7200.0), (36000.0, 86399.0), (360000.0, 720000.0)] {
                 let l = Layout::of(width, pos, dur);
-                let elapsed_w = fmt_time(pos).len() as i32 * 7;
-                let total_w = fmt_time(dur).len() as i32 * 7;
+                let elapsed_w = time_width(&fmt_time(pos));
+                let total_w = time_width(&fmt_time(dur));
                 assert!(l.elapsed_right - elapsed_w >= VOLUME.right() + 6);
                 assert!(l.elapsed_right + 6 <= l.track.x);
                 assert!(l.track.w > 8);
