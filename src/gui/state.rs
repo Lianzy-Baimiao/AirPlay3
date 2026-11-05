@@ -89,6 +89,9 @@ pub struct UiState {
     pub lyric_mode: f32,
     pub info: f32,
     pub lyric_idx: Option<usize>,
+    /// 纯文本歌词没有播放时间轴，由用户在歌词面板滚动阅读。
+    pub plain_lyric_scroll: usize,
+    lyric_content: Option<std::sync::Arc<crate::lyrics::Lyrics>>,
     pub list: ListUi,
     pub eq_hot: Option<usize>,
     pub drag: Drag,
@@ -130,6 +133,8 @@ impl UiState {
             lyric_mode: 0.0,
             info: 1.0,
             lyric_idx: None,
+            plain_lyric_scroll: 0,
+            lyric_content: None,
             list: ListUi { list: Some(list), ..Default::default() },
             eq_hot: None,
             drag: Drag::None,
@@ -333,11 +338,11 @@ impl App {
     }
 
     /// 封面/歌词：新歌开始时显示大封面 + 信息，约 8 秒后有歌词则切换为小封面 + 歌词
-    fn tick_cover(&mut self, now: Instant) -> bool {
-        let (rev, has_lyrics, idx) = {
+    pub(super) fn tick_cover(&mut self, now: Instant) -> bool {
+        let (rev, has_lyrics, idx, lyrics) = {
             let n = self.now.lock();
-            let has = n.lyrics.as_ref().is_some_and(|l| l.synced && !l.lines.is_empty());
-            (n.rev, has, if has { n.lyric_index(self.ui.snap.pos) } else { None })
+            let has = n.lyrics.as_ref().is_some_and(|l| !l.lines.is_empty());
+            (n.rev, has, if has { n.lyric_index(self.ui.snap.pos) } else { None }, n.lyrics.clone())
         };
         let ui = &mut self.ui;
         let mut dirty = false;
@@ -351,6 +356,13 @@ impl App {
         }
         if ui.now_rev != rev {
             ui.now_rev = rev;
+            let same = match (&ui.lyric_content, &lyrics) {
+                (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            };
+            if !same { ui.plain_lyric_scroll = 0; }
+            ui.lyric_content = lyrics;
             dirty = true;
         }
         let age = now - ui.track_started;

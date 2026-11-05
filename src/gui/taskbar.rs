@@ -190,7 +190,7 @@ impl App {
             t.light = light_taskbar();
             return self.sync_taskbar_lyric();
         }
-        if st.idx != t.last.idx || st.text != t.last.text || st.caption != t.last.caption || (st.progress - t.last.progress).abs() > 0.01 {
+        if st.revision != t.last.revision || st.idx != t.last.idx || st.text != t.last.text || st.next != t.last.next || st.caption != t.last.caption || (st.progress - t.last.progress).abs() > 0.01 {
             t.last = st;
             self.paint_taskbar();
         }

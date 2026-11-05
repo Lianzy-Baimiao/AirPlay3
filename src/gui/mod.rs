@@ -15,6 +15,8 @@ mod captions;
 mod cfgdirwin;
 mod lyricdlwin;
 mod lyricwin;
+#[cfg(test)]
+mod lyrics_tests;
 mod menu;
 mod minibar;
 mod paint;

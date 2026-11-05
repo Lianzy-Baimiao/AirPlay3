@@ -33,6 +33,8 @@ pub struct CoverModel<'a> {
     /// 歌词行与当前行
     pub lines: &'a [String],
     pub current: Option<usize>,
+    /// 无时间轴的歌词：从这一行开始静态显示，可用滚轮翻阅。
+    pub plain_start: Option<usize>,
     /// 电台字幕（几段，越后越新；有字幕时代替歌词显示：按宽度换行，最新的一行在当前行的位置）
     pub captions: &'a [String],
     /// 0 = 大封面 + 信息，1 = 小封面 + 歌词（中间为过渡）
@@ -49,7 +51,7 @@ pub fn paint(c: &mut Canvas, m: &CoverModel) {
     c.push_clip(body);
     // 顶部的说明文字：与原版相同，只在有歌曲时显示（空闲时只有标志）
     if m.active || m.status.is_some() {
-        let hint = m.status.unwrap_or("歌曲及歌词相关信息均来自互联网");
+        let hint = m.status.unwrap_or(if m.plain_start.is_some() && m.captions.is_empty() { "纯文本歌词 · 无时间轴，滚轮查看" } else { "歌曲及歌词相关信息均来自互联网" });
         let tw = crate::gui::text::measure(hint, FONT).0 as i32;
         c.text(hint, FONT, (c.w - tw) / 2, body.y + 4, theme::g(128), Hint::ClearType);
     }
@@ -72,7 +74,11 @@ pub fn paint(c: &mut Canvas, m: &CoverModel) {
     if k > 0.0 {
         let a = (k * 255.0) as u8;
         if m.captions.is_empty() {
-            lyric_lines(c, m.lines, m.current, small, body, a);
+            if let Some(start) = m.plain_start {
+                plain_lines(c, m.lines, start, small, body, a);
+            } else {
+                lyric_lines(c, m.lines, m.current, small, body, a);
+            }
         } else {
             let room = (body.right() - (small.right() + 20) - 4) as f32;
             let lines: Vec<String> = m.captions.iter().flat_map(|p| crate::gui::captions::wrap(p, FONT, room)).collect();
@@ -81,6 +87,18 @@ pub fn paint(c: &mut Canvas, m: &CoverModel) {
     }
     if m.info > 0.0 {
         info_overlay(c, m, body, (m.info * 255.0) as u8);
+    }
+    c.pop_clip();
+}
+
+fn plain_lines(c: &mut Canvas, lines: &[String], start: usize, small: R, body: R, a: u8) {
+    let x = small.right() + 20;
+    let room = (body.right() - x - 8).max(1);
+    let top = body.y + 27;
+    let count = ((body.bottom() - 8 - top) / LINE_H).max(0) as usize;
+    c.push_clip(R::new(x, top, room, body.bottom() - top - 8));
+    for (i, line) in lines.iter().skip(start).flat_map(|p| crate::gui::captions::wrap(p, FONT, room as f32)).take(count).enumerate() {
+        c.text(&line, FONT, x, top + i as i32 * LINE_H, theme::g(230).alpha(a), Hint::ClearType);
     }
     c.pop_clip();
 }

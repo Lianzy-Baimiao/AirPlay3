@@ -92,6 +92,7 @@ fn golden() {
             active,
             lines: &lines,
             current: Some(1),
+            plain_start: None,
             captions: &[],
             lyric_mode,
             info,

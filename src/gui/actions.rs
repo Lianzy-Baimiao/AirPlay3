@@ -16,7 +16,7 @@ pub enum AsyncMsg {
     LyricResults(u64, Result<(Vec<crate::lyrics::online::Candidate>, bool), String>),
     /// 搜索窗口下载并保存歌词的结果
     /// 「下载歌词」窗口下载完了：(歌曲, 保存的歌词文件（没下载歌词时为 None）, 各项出的错)
-    LyricSaved(crate::library::TrackId, Option<std::path::PathBuf>, Vec<String>),
+    LyricSaved(Vec<String>),
     LyricFile(crate::library::TrackId, std::path::PathBuf),
     CoverFile(crate::library::TrackId, std::path::PathBuf),
     /// 手动下载专辑图片的结果：Ok(是否找到)
@@ -472,8 +472,8 @@ impl App {
                     self.on_lyric_results(seq, r);
                     self.paint_search();
                 }
-                AsyncMsg::LyricSaved(id, path, errors) => {
-                    self.on_lyric_saved(id, path, errors);
+                AsyncMsg::LyricSaved(errors) => {
+                    self.on_lyric_saved(errors);
                     if self.search.is_some() {
                         self.paint_search();
                     }

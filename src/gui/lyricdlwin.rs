@@ -155,7 +155,11 @@ impl App {
         s.selected = i;
         s.preview = match i.and_then(|i| s.results.get(i)) {
             Some(c) => match &c.lyrics {
-                Some(text) => sp::preview_lines(text, sp::PREVIEW_LINES),
+                Some(text) => {
+                    let mut lines = vec![if crate::lyrics::lrc::parse(text).synced { "同步歌词 · 随播放滚动".into() } else { "纯文本歌词 · 无时间轴，不会随播放滚动".into() }];
+                    lines.extend(sp::preview_lines(text, sp::PREVIEW_LINES - 1));
+                    lines
+                }
                 None => vec!["（歌词在下载时取得）".into()],
             },
             None => Vec::new(),
@@ -205,12 +209,15 @@ impl App {
         let (tx, hwnd) = (self.async_tx.clone(), self.bar_hwnd().0 as isize);
         let (p, now) = (self.player.clone(), self.now.clone());
         std::thread::spawn(move || {
-            let (path, errors) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let errors = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut errors = Vec::new();
-                let mut path = None;
                 if lyric {
                     match online::fetch(&net, &cand).and_then(|text| online::save(&text, &cand, &dir, &title, &artist_name).map_err(|e| format!("保存失败：{e}"))) {
-                        Ok(p) => path = Some(p),
+                        Ok(path) => {
+                            // 歌词先生效，不必等可能很慢的专辑 / 艺人图片下载结束。
+                            p.set_lyric_link(id, Link::File(path), &now);
+                            p.save(false);
+                        }
                         Err(e) => errors.push(format!("歌词：{e}")),
                     }
                 }
@@ -219,21 +226,18 @@ impl App {
                 if tag && info {
                     p.fill_track_info(id, &cand, &now);
                 }
-                (path, errors)
+                errors
             }))
-            .unwrap_or_else(|_| (None, vec!["内部错误".into()]));
-            let _ = tx.send(AsyncMsg::LyricSaved(id, path, errors));
+            .unwrap_or_else(|_| vec!["内部错误".into()]);
+            let _ = tx.send(AsyncMsg::LyricSaved(errors));
             unsafe {
                 let _ = PostMessageW(Some(HWND(hwnd as _)), WM_APP_ASYNC, WPARAM(0), LPARAM(0));
             }
         });
     }
 
-    /// 下载完成：关联歌词；都成功时关闭窗口，有出错的在预览区列出来
-    pub fn on_lyric_saved(&mut self, id: TrackId, path: Option<std::path::PathBuf>, errors: Vec<String>) {
-        if let Some(p) = path {
-            self.player.set_lyric_link(id, Link::File(p), &self.now);
-        }
+    /// 下载完成：歌词已在保存后立即关联；都成功时关闭窗口，有出错的在预览区列出来。
+    pub fn on_lyric_saved(&mut self, errors: Vec<String>) {
         self.dirty(super::app::Pane::Cover);
         self.player.save(false);
         if errors.is_empty() {
