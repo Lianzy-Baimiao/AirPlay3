@@ -111,6 +111,7 @@ impl App {
         if let Some(c) = self.cfgdir.as_mut() {
             rescale_popup(&mut c.win, old);
         }
+        if let Some(n) = self.name_prompt.as_mut() { rescale_popup(&mut n.win, old); }
         // 桌面歌词、任务栏歌词不跟随界面缩放（字号单独调），不用动
         // 开着的菜单（在菜单里点的 − / +）留在原来的地方，按新缩放重画
         if let Some(m) = self.menu.as_mut() {

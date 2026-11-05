@@ -87,6 +87,7 @@ pub struct App {
     pub search: Option<super::lyricdlwin::LyricSearch>,
     /// 「设置用户配置数据及歌词图片缓存保存位置」窗口
     pub cfgdir: Option<super::cfgdirwin::CfgDirWin>,
+    pub name_prompt: Option<super::nameprompt::NamePrompt>,
     /// 主界面的关闭动画播完以后要做的事（最小化、退出……，见 anim.rs）
     pub after: Option<super::anim::After>,
     /// 主界面不在屏幕上：最小化了 / 缩到托盘了
@@ -211,10 +212,12 @@ impl App {
         if let Some(s) = self.settings_win.as_mut() {
             s.win.dirty = true;
         }
+        if let Some(n) = self.name_prompt.as_mut() { n.win.dirty = true; }
     }
 
     /// 把所有需要重绘的窗口画好并提交
     pub fn flush(&mut self) {
+        if self.name_prompt.as_ref().is_some_and(|n| n.win.dirty) { self.paint_list_name(); }
         if self.search.as_ref().is_some_and(|s| s.win.dirty) {
             self.paint_search();
         }
@@ -367,7 +370,7 @@ pub fn run(player: Player, now: SharedNow, cmds: Sender<Command>, start_hidden: 
     bar_slot.store(bar_hwnd.0 as isize, std::sync::atomic::Ordering::Release);
     let ui = super::state::UiState::new(&player);
     let (async_tx, async_rx) = crossbeam_channel::unbounded();
-    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, cfgdir: None, after: None, away: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, smtc: None, captions: Default::default(), async_tx, async_rx };
+    let app = App { player, now, cmds, wins, ui, started: Instant::now(), quitting: false, sizes, menu: None, search: None, cfgdir: None, name_prompt: None, after: None, away: None, settings_win: None, hotkey_failed: Vec::new(), desk: None, taskbar: None, minibar: None, smtc: None, captions: Default::default(), async_tx, async_rx };
     APP.with(|a| *a.borrow_mut() = Some(app));
     super::wnd::after_create(start_hidden);
     unsafe {

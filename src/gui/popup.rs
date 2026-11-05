@@ -17,6 +17,11 @@ pub struct Popup {
 }
 
 impl Popup {
+    /// 测试消息分发时只创建离屏画布，不创建桌面窗口。
+    #[cfg(test)]
+    pub(super) fn offscreen(w: i32, h: i32) -> Popup {
+        Popup { hwnd: HWND::default(), canvas: Canvas::new(w, h), surface: Surface::new(w, h), pos: (0, 0), dirty: true, fixed: false }
+    }
     /// 在屏幕坐标 (x, y) 创建 w×h 的窗口；owner 为播放条（随主窗口最小化）
     pub fn new(x: i32, y: i32, w: i32, h: i32, owner: Option<HWND>, title: &str) -> Popup {
         let hwnd = window::create(title, x, y, w, h, false, owner);

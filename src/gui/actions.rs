@@ -11,6 +11,7 @@ use crate::skin::icons;
 
 pub enum AsyncMsg {
     Files(Vec<std::path::PathBuf>, crate::library::ListId),
+    FolderList(std::path::PathBuf),
     /// 歌词搜索结果：(结果, 是否放宽为只按标题)
     LyricResults(u64, Result<(Vec<crate::lyrics::online::Candidate>, bool), String>),
     /// 搜索窗口下载并保存歌词的结果
@@ -27,6 +28,16 @@ pub enum AsyncMsg {
 
 fn cursor() -> (i32, i32) {
     super::scale::cursor()
+}
+
+fn add_menu() -> Vec<Item> {
+    vec![
+        item("新建播放列表…", Act::NewList),
+        item("文件夹新建为播放列表…", Act::FolderList),
+        Item::Sep,
+        item("添加文件", Act::AddFiles),
+        item("添加文件夹", Act::AddFolder),
+    ]
 }
 
 impl App {
@@ -141,6 +152,9 @@ impl App {
 
     fn row_menu(&self) -> Vec<Item> {
         vec![
+            item("新建播放列表…", Act::NewList),
+            item("文件夹新建为播放列表…", Act::FolderList),
+            Item::Sep,
             item("添加文件", Act::AddFiles),
             item("添加文件夹", Act::AddFolder),
             Item::Sep,
@@ -240,7 +254,8 @@ impl App {
             }
             Act::MainMenu => self.popup(self.main_menu()),
             Act::RowMenu => self.popup(self.row_menu()),
-            Act::AddMenu => self.popup(vec![item("添加文件", Act::AddFiles), item("添加文件夹", Act::AddFolder)]),
+            Act::ListMenu => self.popup(self.music_list_menu()),
+            Act::AddMenu => self.popup(add_menu()),
             Act::EditMenu => self.popup(vec![
                 item("全选", Act::SelectAll),
                 item("不选", Act::SelectNone),
@@ -255,7 +270,8 @@ impl App {
                 item("按专辑排序", Act::Sort(SortBy::Album)),
                 item("按时间长度排序", Act::Sort(SortBy::Duration)),
             ]),
-            Act::AddFiles | Act::AddFolder => self.add_dialog(a == Act::AddFolder),
+            Act::AddFiles | Act::AddFolder | Act::FolderList => self.add_dialog(a != Act::AddFiles, a == Act::FolderList),
+            Act::NewList | Act::RenameList => self.prompt_list_name(a == Act::RenameList),
             Act::LyricMenu => self.popup(self.lyric_menu()),
             Act::LyricSearch => self.open_lyric_search(),
             Act::LyricFile => self.pick_lyric_file(),
@@ -415,13 +431,13 @@ impl App {
         p.save(false);
     }
 
-    fn add_dialog(&mut self, folder: bool) {
+    fn add_dialog(&mut self, folder: bool, new_list: bool) {
         let list = self.ui.list.list.unwrap_or_else(|| self.player.core.lock().lib.special_id(ListKind::Audition));
         let (tx, hwnd) = (self.async_tx.clone(), self.bar_hwnd().0 as isize);
         std::thread::spawn(move || {
             let mut d = rfd::FileDialog::new().set_parent(&crate::platform::window::Parent(hwnd));
             let files = if folder {
-                d.set_title("添加文件夹").pick_folder().map(|f| vec![f])
+                d.set_title(if new_list { "文件夹新建为播放列表" } else { "添加文件夹到当前播放列表" }).pick_folder().map(|f| vec![f])
             } else {
                 d = d.set_title("添加文件");
                 for (name, exts) in crate::media::dialog_filters() {
@@ -430,7 +446,8 @@ impl App {
                 d.pick_files()
             };
             if let Some(files) = files.filter(|f| !f.is_empty()) {
-                let _ = tx.send(AsyncMsg::Files(files, list));
+                let msg = if new_list { AsyncMsg::FolderList(files[0].clone()) } else { AsyncMsg::Files(files, list) };
+                let _ = tx.send(msg);
                 unsafe {
                     let _ = PostMessageW(Some(HWND(hwnd as _)), WM_APP_ASYNC, WPARAM(0), LPARAM(0));
                 }
@@ -441,6 +458,13 @@ impl App {
     pub fn drain_async(&mut self) {
         while let Ok(m) = self.async_rx.try_recv() {
             match m {
+                AsyncMsg::FolderList(folder) => {
+                    let name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "新建列表".into());
+                    self.finish_list_name(None, &name);
+                    if let Some(list) = self.ui.list.list {
+                        self.player.import(vec![folder], list, false);
+                    }
+                }
                 AsyncMsg::Files(files, list) => {
                     self.player.import(files, list, false);
                 }
@@ -643,3 +667,7 @@ impl App {
         let _ = self.cmds.send(c);
     }
 }
+
+#[cfg(test)]
+#[path = "playlist_tests.rs"]
+mod playlist_tests;

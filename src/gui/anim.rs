@@ -490,6 +490,7 @@ impl App {
             return;
         }
         self.quitting = true;
+        self.close_list_name();
         self.save_layout();
         self.player.snapshot_last();
         self.player.stop();

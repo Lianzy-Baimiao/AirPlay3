@@ -3,7 +3,6 @@
 use super::app::{App, Pane};
 use super::canvas::Canvas;
 use super::panels::{bar, cover, eq, playlist};
-use crate::library::ListKind;
 
 pub fn fmt_total(secs: f64) -> String {
     let s = secs.max(0.0) as u64;
@@ -83,7 +82,17 @@ impl App {
         self.refresh_list();
         let caret = self.caret_on();
         self.ui.list.caret_drawn = caret;
-        self.ui.list.tab_scroll = 0;
+        let tabs = self.music_lists();
+        let tab_w = playlist::tab_width(tabs.iter().map(|(_, name)| name.as_str()), c.w);
+        let lay = playlist::Layout::with_tabs(self.sizes.list, tab_w);
+        let l = &mut self.ui.list;
+        if std::mem::take(&mut l.reveal_tab) {
+            if let Some(i) = tabs.iter().position(|(id, _)| Some(*id) == l.list) {
+                l.tab_scroll = lay.reveal_tab(i, l.tab_scroll, tabs.len());
+            }
+        }
+        l.tab_scroll = l.tab_scroll.clamp(0, lay.max_tab_scroll(tabs.len()));
+        l.scroll = l.scroll.clamp(0, lay.max_scroll(l.ids.len()));
         let ui = &self.ui;
         let l = &ui.list;
         let first = (l.scroll / playlist::ROW_H).max(0) as usize;
@@ -106,16 +115,10 @@ impl App {
                 )
             })
             .collect();
-        let tabs: Vec<(String, bool)> = [ListKind::Audition, ListKind::Favorite]
-            .iter()
-            .filter_map(|k| g.lib.special(*k))
-            .filter(|p| p.kind == ListKind::Audition || !p.tracks.is_empty())
-            .map(|p| (if p.kind == ListKind::Audition { "默认".to_string() } else { p.name.clone() }, Some(p.id) == l.list))
-            .collect();
         drop(g);
         let rows: Vec<playlist::Row> =
             data.iter().map(|(t, a, d, p, s)| playlist::Row { title: t, artist: a, duration: d, playing: *p, selected: *s }).collect();
-        let tab_refs: Vec<(&str, bool)> = tabs.iter().map(|(n, a)| (n.as_str(), *a)).collect();
+        let tab_refs: Vec<(&str, bool)> = tabs.iter().map(|(id, name)| (name.as_str(), Some(*id) == l.list)).collect();
         let footer = format!("{} / {}", l.ids.len(), fmt_total(total));
         let m = playlist::PlaylistModel {
             tabs: &tab_refs,
@@ -133,8 +136,8 @@ impl App {
             strip_tabs: radio_tabs,
             paste_hot: false,
             radio_empty: false,
-            tab_w: playlist::TAB_W,
-            tab_scroll: 0,
+            tab_w,
+            tab_scroll: l.tab_scroll,
             search_hover: l.search_hover,
             caret_on: caret,
         };

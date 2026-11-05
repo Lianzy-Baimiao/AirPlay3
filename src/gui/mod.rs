@@ -8,6 +8,8 @@ pub mod app;
 pub mod canvas;
 pub mod draw;
 mod input;
+mod musiclists;
+mod nameprompt;
 mod anim;
 mod captions;
 mod cfgdirwin;

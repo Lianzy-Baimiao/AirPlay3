@@ -203,6 +203,7 @@ impl App {
 
     /// 每 30 毫秒：同步播放状态、推进动画，标记需要重绘的窗口
     pub fn tick(&mut self) {
+        self.tick_list_name();
         self.poll_menu();
         let now = Instant::now();
         let snap = self.take_snap();
@@ -234,10 +235,7 @@ impl App {
         }
         let reveal = self.player.core.lock().reveal.take();
         if let Some(id) = reveal {
-            self.ui.list.list = Some(id);
-            self.ui.list.search.clear();
-            self.ui.list.scroll = 0;
-            self.dirty(Pane::List);
+            self.select_music_list(id);
         }
         let ui = &mut self.ui;
         let mut bar = approach(&mut ui.bar_hover, if ui.hover[0] { 1.0 } else { 0.0 }, 0.16);
@@ -373,7 +371,7 @@ impl App {
     /// 当前列表（含搜索过滤）的歌曲
     pub fn refresh_list(&mut self) {
         let g = self.player.core.lock();
-        let list = self.ui.list.list.unwrap_or_else(|| g.lib.special_id(ListKind::Audition));
+        let list = self.ui.list.list.filter(|id| g.lib.list(*id).is_some()).unwrap_or_else(|| g.lib.special_id(ListKind::Audition));
         let key = (g.lib.rev, list, self.ui.list.search.clone());
         if self.ui.list.ids_key.as_ref() == Some(&key) {
             return;

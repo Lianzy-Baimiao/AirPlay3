@@ -113,6 +113,7 @@ pub fn after_create(start_hidden: bool) {
 
 impl App {
     pub fn handle(&mut self, hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
+        if let Some(r) = self.list_name_msg(hwnd, msg, wp, lp) { return Some(r); }
         if let Some(r) = self.menu_msg(hwnd, msg, wp, lp) {
             return Some(r);
         }

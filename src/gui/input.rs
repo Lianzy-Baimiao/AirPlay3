@@ -234,6 +234,12 @@ impl App {
         if radio && self.radio_list_down(x, y, dbl) {
             return;
         }
+        if !radio && lay.tabs.contains(x, y) {
+            if let Some(id) = self.music_list_at(x, y) {
+                self.select_music_list(id);
+            }
+            return;
+        }
         if !lay.rows.contains(x, y) {
             return self.start_move(Pane::List);
         }
@@ -271,6 +277,12 @@ impl App {
                 l.radio_sel = if lay.rows.contains(x, y) { l.radio_rows.get(lay.row_at(y, l.scroll)).copied() } else { None };
                 self.dirty(Pane::List);
                 self.act(Act::RadioMenu);
+            }
+            Pane::List if self.list_layout().tabs.contains(x, y) => {
+                if let Some(id) = self.music_list_at(x, y) {
+                    self.select_music_list(id);
+                }
+                self.act(Act::ListMenu);
             }
             Pane::List if self.list_layout().rows.contains(x, y) => {
                 let lay = self.list_layout();

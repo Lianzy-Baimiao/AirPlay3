@@ -268,19 +268,20 @@ impl App {
         self.sizes.list
     }
 
-    /// 音乐列表面板现在的布局（电台页签的左边一栏按清单名字加宽）
+    /// 音乐列表面板现在的布局（两种页签都按列表名字加宽）
     pub fn list_layout(&self) -> playlist::Layout {
         let l = &self.ui.list;
-        let tab_w = if l.radio && l.radio_tab_w > 0 { l.radio_tab_w } else { playlist::TAB_W };
+        let tab_w = if l.radio {
+            l.radio_tab_w.max(playlist::TAB_W)
+        } else {
+            playlist::tab_width(self.music_lists().iter().map(|(_, name)| name.as_str()), self.sizes.list.0)
+        };
         playlist::Layout::with_tabs(self.sizes.list, tab_w)
     }
 
-    /// 左边一栏能滚动的最大距离（只有电台清单多时才会放不下）
+    /// 左边一栏能滚动的最大距离。
     pub fn max_tab_scroll(&self) -> i32 {
-        if !self.ui.list.radio {
-            return 0;
-        }
-        let n = self.player.core.lock().settings.radio.lists.len();
+        let n = if self.ui.list.radio { self.player.core.lock().settings.radio.lists.len() } else { self.music_lists().len() };
         self.list_layout().max_tab_scroll(n)
     }
 
