@@ -49,7 +49,11 @@ impl App {
         if let Some(l) = self.ui.list.list.and_then(|id| g.lib.list(id)) {
             items.extend([Item::Sep, item("添加文件", Act::AddFiles), item("添加文件夹", Act::AddFolder)]);
             if matches!(l.kind, ListKind::User | ListKind::Local) {
-                items.push(item("重命名播放列表…", Act::RenameList));
+                items.extend([Item::Sep, item("重命名播放列表…", Act::RenameList)]);
+            }
+            // 默认、喜爱等内置列表不能删
+            if l.kind == ListKind::User {
+                items.push(item("删除播放列表…", Act::DeleteList));
             }
         }
         items
@@ -72,7 +76,35 @@ impl App {
                 (None, name)
             }
         };
-        self.open_list_name(id, &initial);
+        self.open_list_name(id, &initial, None);
+    }
+
+    /// 「删除播放列表…」：对当前选中的自建列表弹确认框
+    pub(super) fn prompt_delete_list(&mut self) {
+        let found = {
+            let g = self.player.core.lock();
+            self.ui.list.list.and_then(|id| g.lib.list(id)).filter(|l| l.kind == ListKind::User).map(|l| (l.id, l.name.clone(), l.tracks.len()))
+        };
+        if let Some((id, name, count)) = found {
+            self.open_list_name(Some(id), &name, Some(count));
+        }
+    }
+
+    /// 删除自建列表（歌曲文件不动）。正选中它时换到左栏里它上面的那个列表。
+    pub(super) fn delete_music_list(&mut self, id: ListId) {
+        let tabs = self.music_lists();
+        if !self.player.core.lock().lib.delete_list(id) {
+            return;
+        }
+        if self.ui.list.list == Some(id) {
+            let at = tabs.iter().position(|t| t.0 == id).unwrap_or(0);
+            let near = tabs.get(at.saturating_sub(1)).into_iter().chain(&tabs).find(|t| t.0 != id).map(|t| t.0);
+            let next = near.unwrap_or_else(|| self.player.core.lock().lib.special_id(ListKind::Audition));
+            self.select_music_list(next);
+        }
+        self.ui.list.ids_key = None;
+        self.player.save(false);
+        self.dirty_all();
     }
 
     pub(super) fn finish_list_name(&mut self, id: Option<ListId>, name: &str) {

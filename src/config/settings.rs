@@ -153,11 +153,15 @@ pub struct General {
     pub play_after_drop: bool,
     /// 全局鼠标滚轮：窗口不在前台时，鼠标指着它滚动滚轮也有效（原版用低级鼠标钩子做到）
     pub global_wheel: bool,
+    /// 自动渐隐：鼠标离开主界面一段时间后，歌词图片、均衡器、音乐列表渐渐隐去（播放条留着），鼠标移回来时重新显示
+    pub auto_fade: bool,
+    /// 渐隐前等多少秒（1 ~ 60）
+    pub auto_fade_secs: u32,
 }
 
 impl Default for General {
     fn default() -> Self {
-        Self { always_on_top: true, minimize_to_tray: false, close_to_tray: false, autostart: false, play_after_drop: true, global_wheel: true }
+        Self { always_on_top: true, minimize_to_tray: false, close_to_tray: false, autostart: false, play_after_drop: true, global_wheel: true, auto_fade: false, auto_fade_secs: 3 }
     }
 }
 
@@ -429,12 +433,14 @@ pub struct ThemeSettings {
     pub border_alpha: u8,
     /// 透明雾化：窗口后面的桌面模糊（毛玻璃）
     pub frost: bool,
+    /// 多彩设置项：「配置」里的开关按功能分组上色（原版的样子）；关掉后是跟着整体颜色的素色
+    pub colorful: bool,
 }
 
 impl Default for ThemeSettings {
     fn default() -> Self {
         // 与原版的默认相同（透明雾化默认打开）
-        Self { body: [0x20, 0x20, 0x20], focus: [0xFF, 0xA0, 0x40], border_alpha: 0, frost: true }
+        Self { body: [0x20, 0x20, 0x20], focus: [0xFF, 0xA0, 0x40], border_alpha: 0, frost: true, colorful: true }
     }
 }
 
@@ -604,6 +610,9 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"theme":{"base":[36,38,46],"accent":[56,196,160],"opacity":1.0}}"#).unwrap();
         assert_eq!(old.theme, ThemeSettings::default());
         assert_eq!((old.theme.body, old.theme.focus, old.theme.border_alpha, old.theme.frost), ([0x20; 3], [0xFF, 0xA0, 0x40], 0, true));
+        // 旧配置里没有的开关：设置项默认多彩，面板默认不自动渐隐（等 3 秒）
+        assert!(old.theme.colorful);
+        assert_eq!((old.general.auto_fade, old.general.auto_fade_secs), (false, 3));
         assert_eq!(partial.audio.buffer_ms, 60);
     }
 

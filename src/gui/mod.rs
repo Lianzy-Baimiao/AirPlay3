@@ -12,6 +12,7 @@ mod input;
 mod musiclists;
 mod nameprompt;
 mod anim;
+mod autofade;
 mod captions;
 mod cfgdirwin;
 mod lyricdlwin;

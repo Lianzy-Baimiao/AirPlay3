@@ -189,18 +189,18 @@ fn golden() {
         save(&dir, name, &c);
     }
 
-    // 配置：全部分页
-    for tab in 0..super::settings_model::TABS.len() {
+    // 配置：全部分页，多彩（默认）和素色各一套
+    for (tab, colorful) in (0..super::settings_model::TABS.len()).flat_map(|t| [(t, true), (t, false)]) {
         let items: Vec<(lay::Item, settings::State)> = if tab == super::settings_model::TAB_ABOUT {
             super::about::items(&Default::default())
-        } else { lay::layout(tab)
+        } else { lay::layout(tab, colorful)
             .into_iter()
             .enumerate()
             .map(|(i, it)| (it, settings::State { on: i % 2 == 0, enabled: i % 5 != 4, dim: i % 7 == 6, value: "示例 Value 123".into(), focused: i == 3 }))
             .collect() };
         let mut c = Canvas::with_scale(settings::W, settings::H, scale);
-        settings::paint(&mut c, &settings::SettingsModel { tab, items: &items, hover: Some(1), hover_tab: Some((tab + 1) % super::settings_model::TABS.len()), hover_cell: Some(2), strip: 1.0 });
-        save(&dir, &format!("settings_{tab}"), &c);
+        settings::paint(&mut c, &settings::SettingsModel { tab, items: &items, hover: Some(1), hover_tab: Some((tab + 1) % super::settings_model::TABS.len()), hover_cell: Some(2), strip: 1.0, colorful });
+        save(&dir, &format!("settings_{tab}{}", if colorful { "" } else { "_plain" }), &c);
     }
 
     // 关于页的真实状态，检查配色、文案和按钮的启用状态。
@@ -213,14 +213,14 @@ fn golden() {
         for (name, state) in [
             ("idle", UpdateState::Idle),
             ("checking", UpdateState::Checking(1)),
-            ("new", ready("v3.28.0", Ordering::Greater)),
+            ("new", ready("v9.0.0", Ordering::Greater)),
             ("latest", ready(&format!("v{}", crate::updates::VERSION), Ordering::Equal)),
             ("ahead", ready("v3.27.6", Ordering::Less)),
             ("failed", UpdateState::Failed("连接 GitHub 失败，请检查网络或代理后重试".into())),
         ] {
             let items = super::about::items(&state);
             let mut c = Canvas::with_scale(settings::W, settings::H, scale);
-            settings::paint(&mut c, &settings::SettingsModel { tab: super::settings_model::TAB_ABOUT, items: &items, hover: None, hover_tab: None, hover_cell: None, strip: 1.0 });
+            settings::paint(&mut c, &settings::SettingsModel { tab: super::settings_model::TAB_ABOUT, items: &items, hover: None, hover_tab: None, hover_cell: None, strip: 1.0, colorful: true });
             c.save_png(&dir.join(format!("about_{theme_name}_{name}.png"))).unwrap();
         }
     }

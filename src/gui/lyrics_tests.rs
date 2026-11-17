@@ -84,7 +84,7 @@ fn cover_intro_duration_defaults_shortens_and_disables() {
         use super::settings_model::{self as model, TAB_LYRICS};
         std::fs::create_dir_all(&dir).unwrap();
         let s = app.player.core.lock().settings.clone();
-        let items: Vec<_> = lay::layout(TAB_LYRICS).into_iter().map(|it| {
+        let items: Vec<_> = lay::layout(TAB_LYRICS, true).into_iter().map(|it| {
             let mut st = State { enabled: true, ..Default::default() };
             match &it.w {
                 Widget::Pill { act: Toggle::Key(k), .. } | Widget::Check(k, _) => { st.on = model::get(&s, *k); st.enabled = model::enabled(&s, *k); st.dim = !st.enabled; }
@@ -98,7 +98,7 @@ fn cover_intro_duration_defaults_shortens_and_disables() {
         for (name, body) in [("dark", [0x20, 0x20, 0x20]), ("blue", [0x10, 0x20, 0x40]), ("light", [0xd0, 0xd0, 0xd0]), ("rose", [0xd0, 0xb0, 0xb0])] {
             super::theme::set(super::theme::Theme { body, ..original });
             let mut canvas = super::canvas::Canvas::with_scale(settings::W, settings::H, 1.25);
-            settings::paint(&mut canvas, &SettingsModel { tab: TAB_LYRICS, items: &items, hover: None, hover_tab: None, hover_cell: None, strip: 1.0 });
+            settings::paint(&mut canvas, &SettingsModel { tab: TAB_LYRICS, items: &items, hover: None, hover_tab: None, hover_cell: None, strip: 1.0, colorful: true });
             canvas.save_png(&dir.join(format!("lyrics-settings-{name}.png"))).unwrap();
         }
         super::theme::set(original);

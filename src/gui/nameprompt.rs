@@ -1,4 +1,4 @@
-//! 新建 / 重命名列表，复用配置窗口的分层画布、阴影、主题色和按钮。
+//! 新建 / 重命名 / 确认删除列表，复用配置窗口的分层画布、阴影、主题色和按钮。
 
 use std::time::Instant;
 use windows::Win32::Foundation::*;
@@ -21,8 +21,14 @@ const CLOSE: R = R::new(SHADOW + 314, SHADOW + 7, 18, 18);
 const W: i32 = BODY.w + 2 * SHADOW;
 const H: i32 = BODY.h + 2 * SHADOW;
 
+fn title(rename: bool, delete: bool) -> &'static str {
+    if delete { "删除播放列表" } else if rename { "重命名播放列表" } else { "新建播放列表" }
+}
+
 struct Visual<'a> {
     rename: bool,
+    /// 确认删除：列表里有几首歌。此时 text 是列表名，不能编辑。
+    delete: Option<usize>,
     text: &'a str,
     focus: usize,
     hot: Option<usize>,
@@ -37,24 +43,33 @@ fn draw(c: &mut Canvas, m: &Visual<'_>) {
     shadow(c, BODY);
     c.fill(BODY, theme::g(75));
     c.fill(BODY.shrink(1), theme::g(32));
-    let title = if m.rename { "重命名播放列表" } else { "新建播放列表" };
+    let title = title(m.rename, m.delete.is_some());
     let tw = text::measure(title, FONT).0 as i32;
     c.text(title, FONT, BODY.x + (BODY.w - tw) / 2, BODY.y + 10, theme::g(215), Hint::ClearType);
     c.text("×", Font::px(14.0, false), CLOSE.x + 4, CLOSE.y, theme::g(if m.hot == Some(3) { 235 } else { 140 }), Hint::ClearType);
-    c.text("列表名称", FONT, FIELD.x, FIELD.y - 21, theme::g(175), Hint::ClearType);
-    soft_rect(c, FIELD, if m.focus == 0 && m.active { theme::focus().mix(theme::g(90), 0.45) } else { theme::g(90) }, 0.7);
-    c.fill(FIELD.shrink(1), theme::g(24));
-    c.push_clip(FIELD.shrink(3));
-    let (left, right) = m.selection;
-    if right > left && m.focus == 0 {
-        c.fill(R::new(m.text_x + left, FIELD.y + 5, right - left, 15), theme::focus().alpha(if m.active { 75 } else { 35 }));
+    if let Some(count) = m.delete {
+        let (head, tail) = ("确定删除播放列表「", "」？");
+        let room = FIELD.w - text::measure(&format!("{head}{tail}"), FONT).0.ceil() as i32;
+        let name = super::panels::playlist::ellipsize(m.text, room);
+        c.text(&format!("{head}{name}{tail}"), FONT, FIELD.x, FIELD.y - 12, theme::g(224), Hint::ClearType);
+        let note = if count == 0 { "这个列表是空的".to_string() } else { format!("{count} 首歌曲只从列表中移除，文件不会被删除") };
+        c.text(&note, FONT, FIELD.x, FIELD.y + 10, theme::g(150), Hint::ClearType);
+    } else {
+        c.text("列表名称", FONT, FIELD.x, FIELD.y - 21, theme::g(175), Hint::ClearType);
+        soft_rect(c, FIELD, if m.focus == 0 && m.active { theme::focus().mix(theme::g(90), 0.45) } else { theme::g(90) }, 0.7);
+        c.fill(FIELD.shrink(1), theme::g(24));
+        c.push_clip(FIELD.shrink(3));
+        let (left, right) = m.selection;
+        if right > left && m.focus == 0 {
+            c.fill(R::new(m.text_x + left, FIELD.y + 5, right - left, 15), theme::focus().alpha(if m.active { 75 } else { 35 }));
+        }
+        c.text(m.text, FONT, m.text_x, FIELD.y + 5, theme::g(224), Hint::ClearType);
+        if let Some(pos) = m.caret { c.fill(R::new(m.text_x + pos, FIELD.y + 5, 1, 15), theme::focus()); }
+        c.pop_clip();
     }
-    c.text(m.text, FONT, m.text_x, FIELD.y + 5, theme::g(224), Hint::ClearType);
-    if let Some(pos) = m.caret { c.fill(R::new(m.text_x + pos, FIELD.y + 5, 1, 15), theme::focus()); }
-    c.pop_clip();
     c.text("Enter 确认 · Esc 取消", FONT, FIELD.x, FIELD.bottom() + 8, theme::g(110), Hint::ClearType);
-    for (i, r, label) in [(1, OK, if m.rename { "保存" } else { "创建" }), (2, CANCEL, "取消")] {
-        let enabled = i != 1 || !m.text.trim().is_empty();
+    for (i, r, label) in [(1, OK, if m.delete.is_some() { "删除" } else if m.rename { "保存" } else { "创建" }), (2, CANCEL, "取消")] {
+        let enabled = i != 1 || m.delete.is_some() || !m.text.trim().is_empty();
         let hot = m.hot == Some(i) || (m.focus == i && m.active);
         button_rgba(c, r, label, [theme::g(25), if hot && enabled { theme::focus() } else { theme::g(117) },
             theme::g(if hot && enabled { 72 } else { 55 }), theme::g(if !enabled { 100 } else if hot { 245 } else { 205 })]);
@@ -103,6 +118,8 @@ impl Edit {
 pub struct NamePrompt {
     pub win: Popup,
     id: Option<ListId>,
+    /// 确认删除（列表里的歌曲数）；此时没有输入框，焦点只在两个按钮之间。
+    delete: Option<usize>,
     edit: Edit,
     /// 0 输入框、1 确认、2 取消。
     focus: usize,
@@ -118,8 +135,12 @@ pub struct NamePrompt {
 impl NamePrompt {
     #[cfg(test)]
     pub(super) fn offscreen(id: Option<ListId>, initial: &str) -> Self {
-        Self { win: Popup::offscreen(W, H), id, edit: Edit::new(initial), focus: 0, hot: None,
+        Self { win: Popup::offscreen(W, H), id, delete: None, edit: Edit::new(initial), focus: 0, hot: None,
             active: false, drag: None, selecting: false, composing: false, caret_t0: Instant::now(), caret_drawn: false, offset: 0 }
+    }
+    #[cfg(test)]
+    pub(super) fn offscreen_delete(id: ListId, name: &str, count: usize) -> Self {
+        Self { delete: Some(count), focus: 1, ..Self::offscreen(Some(id), name) }
     }
     fn caret_on(&self) -> bool { self.active && self.focus == 0 && self.caret_t0.elapsed().as_millis() % 1000 < 500 }
     fn text_x(&self) -> i32 { FIELD.x + 7 - self.offset }
@@ -143,7 +164,7 @@ impl NamePrompt {
         let on = self.caret_on();
         self.caret_drawn = on;
         let c = &mut self.win.canvas;
-        draw(c, &Visual { rename: self.id.is_some(), text: &self.edit.text, focus: self.focus, hot: self.hot,
+        draw(c, &Visual { rename: self.id.is_some(), delete: self.delete, text: &self.edit.text, focus: self.focus, hot: self.hot,
             active: self.active, text_x: x, selection: (left, right), caret: on.then_some(pos) });
         #[cfg(debug_assertions)]
         c.dump("playlist-name");
@@ -156,13 +177,18 @@ impl NamePrompt {
 }
 
 impl App {
-    pub(super) fn open_list_name(&mut self, id: Option<ListId>, initial: &str) {
+    /// `delete` = 确认删除列表 `id`（值是列表里的歌曲数），否则新建（`id` 为 None）或重命名。
+    pub(super) fn open_list_name(&mut self, id: Option<ListId>, initial: &str, delete: Option<usize>) {
         self.set_search_focus(false);
-        if let Some(n) = &self.name_prompt { n.win.show(true); return; }
+        // 已经开着同一个弹框就只把它拿到前面（保留正在输入的名字）；换了用途则重开
+        if let Some(n) = &self.name_prompt {
+            if n.id == id && n.delete.is_some() == delete.is_some() { n.win.show(true); return; }
+            self.close_list_name();
+        }
         let (x, y) = Popup::centered(W, H);
-        let win = Popup::new(x, y, W, H, Some(self.bar_hwnd()), if id.is_some() { "重命名播放列表" } else { "新建播放列表" });
+        let win = Popup::new(x, y, W, H, Some(self.bar_hwnd()), title(id.is_some(), delete.is_some()));
         super::window::set_frost(win.hwnd, false);
-        self.name_prompt = Some(NamePrompt { win, id, edit: Edit::new(initial), focus: 0, hot: None,
+        self.name_prompt = Some(NamePrompt { win, id, delete, edit: Edit::new(initial), focus: delete.is_some() as usize, hot: None,
             active: true, drag: None, selecting: false, composing: false, caret_t0: Instant::now(), caret_drawn: true, offset: 0 });
         self.paint_list_name();
         if let Some(n) = &self.name_prompt {
@@ -190,16 +216,20 @@ impl App {
         }
     }
     fn confirm_list_name(&mut self) {
-        let Some(n) = self.name_prompt.as_ref().filter(|n| !n.edit.text.trim().is_empty()) else { return };
-        let (id, name) = (n.id, n.edit.text.clone());
+        let Some(n) = self.name_prompt.as_ref().filter(|n| n.delete.is_some() || !n.edit.text.trim().is_empty()) else { return };
+        let (id, name, delete) = (n.id, n.edit.text.clone(), n.delete.is_some());
         self.close_list_name();
-        self.finish_list_name(id, &name);
+        match id {
+            Some(id) if delete => self.delete_music_list(id),
+            _ => self.finish_list_name(id, &name),
+        }
     }
     pub(super) fn list_name_msg(&mut self, hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
         if self.name_prompt.as_ref()?.win.hwnd != hwnd { return None; }
         let (x, y) = (super::scale::lx(lp), super::scale::ly(lp));
         let n = self.name_prompt.as_mut()?;
-        let hit = [FIELD, OK, CANCEL, CLOSE].iter().position(|r| r.contains(x, y));
+        // 确认删除时没有输入框，那一块和窗口其它地方一样可以拖
+        let hit = [FIELD, OK, CANCEL, CLOSE].iter().position(|r| r.contains(x, y)).filter(|&i| i != 0 || n.delete.is_none());
         match msg {
             // 组合输入交给系统输入法，选候选词时的 Enter / Esc 不提交或关闭弹框。
             WM_IME_STARTCOMPOSITION => { n.composing = true; return None; }
@@ -250,6 +280,7 @@ impl App {
                     VK_ESCAPE => self.close_list_name(),
                     VK_RETURN if n.focus == 2 => self.close_list_name(),
                     VK_RETURN => self.confirm_list_name(),
+                    VK_TAB | VK_LEFT | VK_RIGHT if n.delete.is_some() => n.focus = 3 - n.focus,
                     VK_TAB => n.focus = (n.focus + if shift { 2 } else { 1 }) % 3,
                     VK_SPACE if n.focus == 1 => self.confirm_list_name(),
                     VK_SPACE if n.focus == 2 => self.close_list_name(),
@@ -324,8 +355,14 @@ mod tests {
             for (name, rename, value, hot) in [("create", false, "新建列表", None), ("rename", true, "通勤音乐", Some(1)), ("empty", false, "", None)] {
                 let mut canvas = Canvas::with_scale(W, H, scale);
                 let width = text::measure(value, FONT).0 as i32;
-                draw(&mut canvas, &Visual { rename, text: value, focus: 0, hot, active: true, text_x: FIELD.x + 7,
+                draw(&mut canvas, &Visual { rename, delete: None, text: value, focus: 0, hot, active: true, text_x: FIELD.x + 7,
                     selection: (0, width), caret: Some(width) });
+                canvas.save_png(&dir.join(format!("playlist-{name}-{}.png", (scale * 100.0) as u32))).unwrap();
+            }
+            for (name, value, count, focus) in [("delete", "通勤音乐", 128, 1), ("delete-empty", "一个名字特别特别长的播放列表用来检查末尾的省略号", 0, 2)] {
+                let mut canvas = Canvas::with_scale(W, H, scale);
+                draw(&mut canvas, &Visual { rename: true, delete: Some(count), text: value, focus, hot: None, active: true,
+                    text_x: FIELD.x + 7, selection: (0, 0), caret: None });
                 canvas.save_png(&dir.join(format!("playlist-{name}-{}.png", (scale * 100.0) as u32))).unwrap();
             }
         }
@@ -340,7 +377,7 @@ mod tests {
                 let value = if empty { "" } else { "通勤音乐" };
                 let width = text::measure(value, FONT).0 as i32;
                 let mut canvas = Canvas::with_scale(W, H, 1.5);
-                draw(&mut canvas, &Visual { rename: true, text: value, focus: 0, hot: Some(1), active: true,
+                draw(&mut canvas, &Visual { rename: true, delete: None, text: value, focus: 0, hot: Some(1), active: true,
                     text_x: FIELD.x + 7, selection: (0, width), caret: Some(width) });
                 canvas.save_png(&dir.join(format!("playlist-theme-{name}-{}.png", if empty { "empty" } else { "filled" }))).unwrap();
             }

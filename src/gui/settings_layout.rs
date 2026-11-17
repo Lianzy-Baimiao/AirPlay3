@@ -32,7 +32,7 @@ pub enum Toggle {
     /// 关联一种格式（FORMATS 里的第几个）
     Format(usize),
     /// 关联一组格式（None = 全部）
-    Group(Option<Tone>),
+    Group(Option<Kind>),
     /// 不是开关，是按钮（没有勾选框）
     Act(Btn),
 }
@@ -89,40 +89,73 @@ pub struct Item {
     pub w: Widget,
 }
 
-/// 文件关联页的格式：(显示的名字, 颜色组, 对应的扩展名（空 = 不支持，灰掉）, 列, 行)。
+/// 文件关联页的格式分组（第一排的按钮按组全选）
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Kind {
+    Common,
+    Lossless,
+    Playlist,
+    Cue,
+}
+
+impl Kind {
+    pub const ALL: [Kind; 4] = [Kind::Common, Kind::Lossless, Kind::Playlist, Kind::Cue];
+
+    /// 「多彩设置项」关着时写在全选按钮上的名字（开着时靠颜色区分，与原版相同）
+    pub fn label(self) -> &'static str {
+        match self {
+            Kind::Common => "常见",
+            Kind::Lossless => "无损",
+            Kind::Playlist => "列表",
+            Kind::Cue => "CUE",
+        }
+    }
+
+    /// 这一组的颜色（原版）
+    pub fn tone(self) -> Tone {
+        match self {
+            Kind::Common => Tone::Khaki,
+            Kind::Lossless => Tone::Teal,
+            Kind::Playlist => Tone::Lavender,
+            Kind::Cue => Tone::Pink,
+        }
+    }
+}
+
+/// 文件关联页的格式：(显示的名字, 分组, 对应的扩展名（空 = 不支持，灰掉）, 列, 行)。
 /// 只关联页面上看得到的格式（启动时去掉旧版本多关联的，见 shell::tidy_associations）
-pub static FORMATS: [(&str, Tone, &[&str], i32, i32); 27] = [
-    ("AAC", Tone::Khaki, &["aac"], 0, 0),
-    ("AC3", Tone::Khaki, &["ac3"], 1, 0),
-    ("AIFF", Tone::Khaki, &["aif", "aiff", "aifc"], 2, 0),
-    ("ASF", Tone::Khaki, &["asf"], 3, 0),
-    ("AU", Tone::Khaki, &[], 0, 1),
-    ("DTS", Tone::Khaki, &["dts", "dtshd"], 1, 1),
-    ("MP3", Tone::Khaki, &["mp3", "mp2", "mp1", "mpa"], 2, 1),
-    ("MP4", Tone::Khaki, &["mp4", "m4a", "m4b"], 3, 1),
-    ("MPC", Tone::Khaki, &["mpc", "mp+", "mpp"], 0, 2),
-    ("OGG", Tone::Khaki, &["ogg", "oga"], 1, 2),
-    ("WMA", Tone::Khaki, &["wma"], 2, 2),
-    ("ALAC", Tone::Teal, &["alac"], 0, 3),
-    ("APE", Tone::Teal, &["ape"], 1, 3),
-    ("FLAC", Tone::Teal, &["flac"], 2, 3),
-    ("TAK", Tone::Teal, &["tak"], 3, 3),
-    ("TTA", Tone::Teal, &["tta"], 0, 4),
-    ("WAV", Tone::Teal, &["wav"], 1, 4),
-    ("WV", Tone::Teal, &["wv"], 2, 4),
-    ("APL", Tone::Lavender, &["apl"], 0, 5),
-    ("ASX", Tone::Lavender, &["asx"], 1, 5),
-    ("FPL", Tone::Lavender, &[], 2, 5),
-    ("M3U", Tone::Lavender, &["m3u", "m3u8"], 3, 5),
-    ("PLS", Tone::Lavender, &["pls"], 0, 6),
-    ("WPL", Tone::Lavender, &["wpl"], 1, 6),
-    ("TTBL", Tone::Lavender, &[], 2, 6),
-    ("TTPL", Tone::Lavender, &["ttpl"], 3, 6),
-    ("CUE", Tone::Pink, &["cue"], 0, 7),
+pub static FORMATS: [(&str, Kind, &[&str], i32, i32); 27] = [
+    ("AAC", Kind::Common, &["aac"], 0, 0),
+    ("AC3", Kind::Common, &["ac3"], 1, 0),
+    ("AIFF", Kind::Common, &["aif", "aiff", "aifc"], 2, 0),
+    ("ASF", Kind::Common, &["asf"], 3, 0),
+    ("AU", Kind::Common, &[], 0, 1),
+    ("DTS", Kind::Common, &["dts", "dtshd"], 1, 1),
+    ("MP3", Kind::Common, &["mp3", "mp2", "mp1", "mpa"], 2, 1),
+    ("MP4", Kind::Common, &["mp4", "m4a", "m4b"], 3, 1),
+    ("MPC", Kind::Common, &["mpc", "mp+", "mpp"], 0, 2),
+    ("OGG", Kind::Common, &["ogg", "oga"], 1, 2),
+    ("WMA", Kind::Common, &["wma"], 2, 2),
+    ("ALAC", Kind::Lossless, &["alac"], 0, 3),
+    ("APE", Kind::Lossless, &["ape"], 1, 3),
+    ("FLAC", Kind::Lossless, &["flac"], 2, 3),
+    ("TAK", Kind::Lossless, &["tak"], 3, 3),
+    ("TTA", Kind::Lossless, &["tta"], 0, 4),
+    ("WAV", Kind::Lossless, &["wav"], 1, 4),
+    ("WV", Kind::Lossless, &["wv"], 2, 4),
+    ("APL", Kind::Playlist, &["apl"], 0, 5),
+    ("ASX", Kind::Playlist, &["asx"], 1, 5),
+    ("FPL", Kind::Playlist, &[], 2, 5),
+    ("M3U", Kind::Playlist, &["m3u", "m3u8"], 3, 5),
+    ("PLS", Kind::Playlist, &["pls"], 0, 6),
+    ("WPL", Kind::Playlist, &["wpl"], 1, 6),
+    ("TTBL", Kind::Playlist, &[], 2, 6),
+    ("TTPL", Kind::Playlist, &["ttpl"], 3, 6),
+    ("CUE", Kind::Cue, &["cue"], 0, 7),
 ];
 
 /// 一组格式的扩展名（None = 全部）
-pub fn group_exts(g: Option<Tone>) -> Vec<&'static str> {
+pub fn group_exts(g: Option<Kind>) -> Vec<&'static str> {
     FORMATS.iter().filter(|f| g.is_none_or(|t| t == f.1)).flat_map(|f| f.2.iter().copied()).collect()
 }
 
@@ -158,8 +191,9 @@ fn it(r: R, w: Widget) -> Item {
     Item { r, w }
 }
 
-/// 某个分页上的控件
-pub fn layout(tab: usize) -> Vec<Item> {
+/// 某个分页上的控件。colorful = 「多彩设置项」开着（原版的样子：开关按功能分组上色）；
+/// 关着时开关都是跟着主题的素色，文件关联页改用文字和间距区分各组
+pub fn layout(tab: usize, colorful: bool) -> Vec<Item> {
     use Tone::*;
     use Widget::*;
     match tab {
@@ -172,6 +206,10 @@ pub fn layout(tab: usize) -> Vec<Item> {
             key(pr(311, 106, 476), Teal, "点关闭按钮缩到托盘", Key::CloseToTray),
             key(pr(126, 131, 476), Lavender, "拖拽添加文件(夹)到\"音乐列表\"后立即播放", Key::PlayAfterDrop),
             key(pr(126, 151, 476), Lavender, "添加文件夹时忽略压缩文件 (提高添加速度)", Key::IgnoreArchives),
+            key(pr(126, 176, 476), Pink, "鼠标离开后自动渐隐歌词图片、均衡器、音乐列表", Key::AutoFade),
+            it(R::new(128, 203, 64, 18), Label("渐隐前等待")),
+            it(R::new(196, 202, 48, 19), Edit(Field::FadeSecs, "3")),
+            it(R::new(254, 203, 222, 18), Label("秒（1 ~ 60 秒；鼠标移回来时重新显示）")),
             pill(pr(126, 346, 476), Grey, "设置用户配置数据及歌词图片缓存保存位置", Toggle::Act(Btn::DataDir)),
         ],
         TAB_AUDIO => vec![
@@ -234,7 +272,7 @@ pub fn layout(tab: usize) -> Vec<Item> {
             it(R::new(123, 248, 360, 18), Label("偏移是像素：正数向右、向下；也可以在任务栏上拖动歌词")),
             pill(pr(121, 346, 482), Grey, "恢复任务栏歌词的默认位置", Toggle::Act(Btn::ResetTaskbarPos)),
         ],
-        TAB_ASSOC => assoc_layout(),
+        TAB_ASSOC => assoc_layout(colorful),
         TAB_HOTKEYS => hotkey_layout(),
         TAB_COLOR => vec![
             it(R::new(104, 31, 396, 18), Title("整体颜色")),
@@ -245,6 +283,7 @@ pub fn layout(tab: usize) -> Vec<Item> {
             it(R::new(184, 180, 200, 17), Slider),
             key(pr(380, 178, 485), Grey, "透明雾化", Key::Frost),
             it(R::new(110, 214, 386, 3), Groove(0x32)),
+            key(pr(126, 231, 485), Lavender, "多彩设置项 (配置里的开关按功能分组上色)", Key::Colorful),
             pill(pr(126, 346, 485), Grey, "恢复默认颜色", Toggle::Act(Btn::ResetColors)),
         ],
         TAB_ABOUT => vec![
@@ -267,18 +306,24 @@ pub fn layout(tab: usize) -> Vec<Item> {
     }
 }
 
-fn assoc_layout() -> Vec<Item> {
+fn assoc_layout(colorful: bool) -> Vec<Item> {
     let mut v = Vec::new();
-    // 第一排：按颜色组全选（灰色 = 全部）
-    for (i, g) in [None, Some(Tone::Khaki), Some(Tone::Teal), Some(Tone::Lavender), Some(Tone::Pink)].into_iter().enumerate() {
-        let x = 179 + 50 * i as i32;
-        v.push(pill(pr(x, 36, x + 45), g.unwrap_or(Tone::Grey), "", Toggle::Group(g)));
+    // 第一排：按组全选（全部 / 常见 / 无损 / 列表 / CUE）。
+    // 多彩：原版的五个小色块（灰色 = 全部）；素色：按钮上写着名字，与下面的格式两端对齐
+    for (i, g) in std::iter::once(None).chain(Kind::ALL.map(Some)).enumerate() {
+        let (i, tone) = (i as i32, g.map_or(Tone::Grey, Kind::tone));
+        let (x, w, label) = if colorful { (179 + 50 * i, 45, "") } else { (144 + 64 * i, 59, g.map_or("全部", Kind::label)) };
+        v.push(pill(pr(x, 36, x + w), tone, label, Toggle::Group(g)));
     }
     for (i, f) in FORMATS.iter().enumerate() {
-        let (x, y) = (144 + 80 * f.3, 66 + 22 * f.4);
-        v.push(pill(pr(x, y, x + 75), f.1, f.0, Toggle::Format(i)));
+        // 素色：各组之间多空 3 像素，看得出哪些格式是一组
+        let gap = if colorful { 0 } else { 3 * Kind::ALL.iter().position(|k| *k == f.1).unwrap_or(0) as i32 };
+        let (x, y) = (144 + 80 * f.3, 66 + 22 * f.4 + gap);
+        v.push(pill(pr(x, y, x + 75), f.1.tone(), f.0, Toggle::Format(i)));
     }
-    v.push(it(R::new(120, 257, 377, 3), Widget::Groove(0x32)));
+    let bottom = FORMATS.iter().map(|f| f.4).max().unwrap_or(0);
+    let last_gap = if colorful { 0 } else { 3 * (Kind::ALL.len() as i32 - 1) };
+    v.push(it(R::new(120, 66 + 22 * bottom + 21 + 16 + last_gap, 377, 3), Widget::Groove(0x32)));
     v
 }
 
@@ -315,13 +360,33 @@ mod tests {
     /// 每个分页的控件都在内容区里，药丸一样高
     #[test]
     fn every_tab_fits() {
-        for tab in 0..super::super::settings_model::TABS.len() {
-            for i in layout(tab) {
+        for (tab, colorful) in (0..super::super::settings_model::TABS.len()).flat_map(|t| [(t, true), (t, false)]) {
+            for i in layout(tab, colorful) {
                 assert!(i.r.x >= 102 && i.r.right() <= 501 && i.r.y >= 20 && i.r.bottom() <= 383, "{tab}: {:?}", i);
                 if matches!(i.w, Widget::Pill { .. }) {
                     assert_eq!(i.r.h, 21);
                 }
             }
         }
+    }
+
+    /// 两种样子只在文件关联页的摆法上不同，开关一个不少；多彩时文件关联页是原版的位置
+    #[test]
+    fn colorful_and_plain_have_the_same_controls() {
+        for tab in 0..super::super::settings_model::TABS.len() {
+            let (a, b) = (layout(tab, true), layout(tab, false));
+            assert_eq!(a.len(), b.len(), "{tab}");
+            for (x, y) in a.iter().zip(&b) {
+                match (&x.w, &y.w) {
+                    (Widget::Pill { act: p, tone: s, .. }, Widget::Pill { act: q, tone: t, .. }) => assert_eq!((p, s), (q, t)),
+                    (p, q) => assert_eq!(p, q),
+                }
+                assert!(x.r == y.r || tab == TAB_ASSOC, "{tab}: {:?} / {:?}", x, y);
+            }
+        }
+        let a = layout(TAB_ASSOC, true);
+        assert_eq!((a[0].r, a[5].r, a.last().unwrap().r), (pr(179, 36, 224), pr(144, 66, 219), R::new(120, 257, 377, 3)));
+        let b = layout(TAB_ASSOC, false);
+        assert_eq!((b[0].r, b.last().unwrap().r), (pr(144, 36, 203), R::new(120, 266, 377, 3)));
     }
 }

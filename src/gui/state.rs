@@ -97,6 +97,8 @@ pub struct UiState {
     pub cover_status: Option<(String, Instant)>,
     /// 电台字幕（各处歌词位置显示的识别结果）
     pub caption: super::captions::CaptionView,
+    /// 自动渐隐：歌词图片、均衡器、音乐列表现在的不透明度
+    pub fade: super::autofade::AutoFade,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -136,6 +138,7 @@ impl UiState {
             last_frame: Instant::now(),
             cover_status: None,
             caption: Default::default(),
+            fade: super::autofade::AutoFade::new(Instant::now()),
         }
     }
 }
@@ -277,6 +280,7 @@ impl App {
         self.tick_desk();
         self.tick_taskbar();
         self.tick_minibar();
+        self.tick_auto_fade(now);
         self.tick_anim();
         self.tick_smtc();
         self.ui.last_frame = now;

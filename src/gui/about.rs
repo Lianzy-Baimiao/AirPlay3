@@ -53,7 +53,7 @@ impl UpdateState {
 
 pub fn items(state: &UpdateState) -> Vec<(Item, State)> {
     let mut text_index = 0;
-    lay::layout(TAB_ABOUT).into_iter().map(|it| {
+    lay::layout(TAB_ABOUT, true).into_iter().map(|it| {
         let mut st = State { enabled: true, ..Default::default() };
         match &it.w {
             Widget::Text => {

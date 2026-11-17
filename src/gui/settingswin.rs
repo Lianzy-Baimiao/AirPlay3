@@ -155,7 +155,7 @@ impl App {
         let g = self.player.core.lock();
         let s = &g.settings;
         let hk = &s.hotkeys;
-        lay::layout(sw.tab)
+        lay::layout(sw.tab, s.theme.colorful)
             .into_iter()
             .map(|it| {
                 let mut st = State { enabled: true, ..Default::default() };
@@ -212,6 +212,7 @@ impl App {
 
     pub fn paint_settings(&mut self) {
         let items = self.settings_items();
+        let colorful = self.player.core.lock().settings.theme.colorful;
         let Some(sw) = self.settings_win.as_mut() else { return };
         let m = SettingsModel {
             tab: sw.tab,
@@ -220,6 +221,7 @@ impl App {
             hover_tab: sw.hover_tab,
             hover_cell: sw.hover_cell,
             strip: if sw.inside { 1.0 } else { 0.0 },
+            colorful,
         };
         let body = {
             sp::paint(&mut sw.win.canvas, &m);
@@ -363,8 +365,9 @@ impl App {
             Btn::BrowseLyricDir => self.browse_lyric_dir(),
             Btn::ResetTaskbarPos => self.act(Act::TaskbarReset),
             Btn::ResetColors => self.set_theme(|t| {
-                let frost = t.frost;
-                *t = crate::config::ThemeSettings { frost, ..Default::default() };
+                // 只恢复颜色：透明雾化、多彩设置项这两个开关不动
+                let (frost, colorful) = (t.frost, t.colorful);
+                *t = crate::config::ThemeSettings { frost, colorful, ..Default::default() };
             }),
             Btn::Capture(a) => {
                 if let Some(sw) = self.settings_win.as_mut() {

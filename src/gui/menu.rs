@@ -36,6 +36,7 @@ pub enum Act {
     AddFolder,
     NewList,
     RenameList,
+    DeleteList,
     ListMenu,
     FolderList,
     RemoveRows(Vec<crate::library::TrackId>),

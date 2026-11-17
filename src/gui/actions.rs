@@ -152,7 +152,7 @@ impl App {
     }
 
     fn row_menu(&self) -> Vec<Item> {
-        vec![
+        let mut v = vec![
             item("新建播放列表…", Act::NewList),
             item("文件夹新建为播放列表…", Act::FolderList),
             Item::Sep,
@@ -160,11 +160,22 @@ impl App {
             item("添加文件夹", Act::AddFolder),
             Item::Sep,
             item("清空当前列表", Act::ClearList),
+        ];
+        // 自建列表可以整个删掉（默认列表等内置列表不行）
+        let user = {
+            let g = self.player.core.lock();
+            self.ui.list.list.and_then(|id| g.lib.list(id)).is_some_and(|l| l.kind == ListKind::User)
+        };
+        if user {
+            v.push(item("删除当前列表…", Act::DeleteList));
+        }
+        v.extend([
             Item::Sep,
             item("打开所在文件夹", Act::RevealSelected),
             Item::Sep,
             item("物理删除 (放入回收站)", Act::RecycleSelected),
-        ]
+        ]);
+        v
     }
 
     pub fn popup(&mut self, items: Vec<Item>) {
@@ -273,6 +284,7 @@ impl App {
             ]),
             Act::AddFiles | Act::AddFolder | Act::FolderList => self.add_dialog(a != Act::AddFiles, a == Act::FolderList),
             Act::NewList | Act::RenameList => self.prompt_list_name(a == Act::RenameList),
+            Act::DeleteList => self.prompt_delete_list(),
             Act::LyricMenu => self.popup(self.lyric_menu()),
             Act::LyricSearch => self.open_lyric_search(),
             Act::LyricFile => self.pick_lyric_file(),

@@ -205,3 +205,71 @@ fn playlist_name_dialog_ignores_empty_and_ime_confirmation() {
     assert!(app.name_prompt.is_none());
     assert_eq!(app.player.core.lock().lib.lists.len(), count + 1);
 }
+
+fn offers(items: &[Item], act: Act) -> bool {
+    items.iter().any(|i| matches!(i, Item::Do { act: a, .. } if *a == act))
+}
+
+#[test]
+fn playlist_delete_is_offered_only_for_user_lists() {
+    let mut app = test_app("delete_menu", Library::default());
+    assert!(!offers(&app.music_list_menu(), Act::DeleteList) && !offers(&app.row_menu(), Act::DeleteList), "默认列表不能删除");
+    app.prompt_delete_list();
+    assert!(app.name_prompt.is_none(), "默认列表不弹删除确认");
+    app.finish_list_name(None, "通勤");
+    assert!(offers(&app.music_list_menu(), Act::DeleteList), "左栏右键菜单必须能删除自建列表");
+    assert!(offers(&app.row_menu(), Act::DeleteList), "歌曲区右键菜单必须能删除自建列表");
+}
+
+#[test]
+fn playlist_delete_confirms_cancels_and_persists() {
+    use crate::gui::nameprompt::NamePrompt;
+    let mut app = test_app("delete", Library::default());
+    let default = app.ui.list.list.unwrap();
+    let h = HWND::default();
+    app.finish_list_name(None, "第一个");
+    let first = app.ui.list.list.unwrap();
+    app.finish_list_name(None, "第二个");
+    let second = app.ui.list.list.unwrap();
+    let folder = wav_folder(&app);
+    send(&mut app, AsyncMsg::Files(vec![folder], second));
+    wait_for(|| app.player.core.lock().lib.list(second).unwrap().tracks.len() == 1);
+    app.refresh_list();
+    assert_eq!(app.ui.list.ids.len(), 1);
+
+    // 取消（Esc、Tab 到「取消」再回车）不删除
+    app.name_prompt = Some(NamePrompt::offscreen_delete(second, "第二个", 1));
+    app.list_name_msg(h, WM_KEYDOWN, WPARAM(27), LPARAM(0));
+    assert!(app.name_prompt.is_none() && app.player.core.lock().lib.list(second).is_some());
+    app.name_prompt = Some(NamePrompt::offscreen_delete(second, "第二个", 1));
+    app.list_name_msg(h, WM_KEYDOWN, WPARAM(9), LPARAM(0));
+    app.list_name_msg(h, WM_KEYDOWN, WPARAM(13), LPARAM(0));
+    assert!(app.name_prompt.is_none() && app.player.core.lock().lib.list(second).is_some());
+    // 确认框里打字不改列表名
+    app.name_prompt = Some(NamePrompt::offscreen_delete(second, "第二个", 1));
+    app.list_name_msg(h, WM_CHAR, WPARAM('x' as usize), LPARAM(0));
+    app.list_name_msg(h, WM_KEYDOWN, WPARAM(8), LPARAM(0));
+
+    // 回车确认：列表没了，换到左栏里上面的那个，歌曲区不残留它的歌
+    app.list_name_msg(h, WM_KEYDOWN, WPARAM(13), LPARAM(0));
+    assert!(app.name_prompt.is_none());
+    assert!(app.player.core.lock().lib.list(second).is_none());
+    assert_eq!(app.ui.list.list, Some(first));
+    app.refresh_list();
+    assert!(app.ui.list.ids.is_empty());
+    assert!(!app.music_lists().iter().any(|t| t.0 == second));
+    let file = app.player.core.lock().dirs.library_file();
+    wait_for(|| { let l = Library::load(&file); l.list(first).is_some() && l.list(second).is_none() });
+
+    // 没选中它时删除（确认框开着的时候换了列表）：选中的列表不变
+    app.select_music_list(default);
+    app.delete_music_list(first);
+    assert_eq!(app.ui.list.list, Some(default));
+    assert_eq!(app.music_lists().len(), 1);
+    // 内置列表删不掉
+    app.delete_music_list(default);
+    assert!(app.player.core.lock().lib.list(default).is_some());
+    app.player.save(true);
+    let restored = test_app("delete_reload", Library::load(&file));
+    assert_eq!(restored.music_lists(), vec![(default, "默认".to_string())], "重启后删掉的列表不能回来");
+}

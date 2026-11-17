@@ -55,11 +55,17 @@ pub enum Key {
     TaskbarLyric,
     TaskbarTwoLines,
     Frost,
+    /// 多彩设置项（配置里的开关按功能分组上色）
+    Colorful,
+    /// 鼠标离开后自动渐隐歌词图片、均衡器、音乐列表
+    AutoFade,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Field {
     CoverIntroSecs,
+    /// 自动渐隐前等多少秒
+    FadeSecs,
     CustomDir,
     ProxyHost,
     ProxyPort,
@@ -80,7 +86,7 @@ pub enum Field {
 impl Field {
     /// 数字输入框：输入过程中（如只打了 "-"）解析不了时先不改设置
     pub fn numeric(self) -> bool {
-        matches!(self, Field::CoverIntroSecs | Field::ProxyPort | Field::TaskbarX | Field::TaskbarY | Field::TaskbarFont | Field::TaskbarWidth | Field::DeskFont)
+        matches!(self, Field::CoverIntroSecs | Field::FadeSecs | Field::ProxyPort | Field::TaskbarX | Field::TaskbarY | Field::TaskbarFont | Field::TaskbarWidth | Field::DeskFont)
     }
 
     /// 显示为 * 的输入框（密码、密钥）
@@ -156,6 +162,8 @@ pub fn get(s: &Settings, k: Key) -> bool {
         Key::TaskbarLyric => s.taskbar_lyric.visible,
         Key::TaskbarTwoLines => s.taskbar_lyric.two_lines,
         Key::Frost => s.theme.frost,
+        Key::Colorful => s.theme.colorful,
+        Key::AutoFade => s.general.auto_fade,
     }
 }
 
@@ -198,6 +206,8 @@ pub fn set(s: &mut Settings, k: Key, v: bool) {
         Key::TaskbarLyric => s.taskbar_lyric.visible = v,
         Key::TaskbarTwoLines => s.taskbar_lyric.two_lines = v,
         Key::Frost => s.theme.frost = v,
+        Key::Colorful => s.theme.colorful = v,
+        Key::AutoFade => s.general.auto_fade = v,
     }
 }
 
@@ -226,6 +236,7 @@ pub fn raw_text(s: &Settings, f: Field) -> String {
     let t = &s.taskbar_lyric;
     match f {
         Field::CoverIntroSecs => s.lyrics.cover_intro_secs.min(60).to_string(),
+        Field::FadeSecs => s.general.auto_fade_secs.clamp(1, 60).to_string(),
         Field::CustomDir => s.lyrics.custom_dir.clone().unwrap_or_default(),
         Field::ProxyHost => s.network.host.clone(),
         Field::ProxyPort => if s.network.port == 0 { String::new() } else { s.network.port.to_string() },
@@ -248,6 +259,10 @@ pub fn set_text(s: &mut Settings, f: Field, v: &str) -> bool {
     match f {
         Field::CoverIntroSecs => match num(0, 60) {
             Some(n) => s.lyrics.cover_intro_secs = n as u32,
+            None => return false,
+        },
+        Field::FadeSecs => match num(1, 60) {
+            Some(n) => s.general.auto_fade_secs = n as u32,
             None => return false,
         },
         Field::CustomDir => s.lyrics.custom_dir = Some(v.to_string()),
@@ -327,6 +342,20 @@ mod tests {
         assert_eq!(old.lyrics.cover_intro_secs, 8, "旧配置沿用八秒");
         assert!(set_text(&mut s, Field::CoverIntroSecs, "999"));
         assert_eq!(raw_text(&s, Field::CoverIntroSecs), "60");
+        // 自动渐隐默认关着、等 3 秒；秒数限制在 1 ~ 60
+        assert_eq!((get(&s, Key::AutoFade), raw_text(&s, Field::FadeSecs)), (false, "3".into()));
+        set(&mut s, Key::AutoFade, true);
+        assert!(set_text(&mut s, Field::FadeSecs, "0"));
+        assert_eq!(s.general.auto_fade_secs, 1);
+        assert!(set_text(&mut s, Field::FadeSecs, "999"));
+        assert_eq!(s.general.auto_fade_secs, 60);
+        assert!(!set_text(&mut s, Field::FadeSecs, ""));
+        assert!(set_text(&mut s, Field::FadeSecs, "5"));
+        // 设置项默认多彩，可以关掉；关掉后重启仍关着
+        assert!(get(&s, Key::Colorful));
+        set(&mut s, Key::Colorful, false);
+        let saved: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!((saved.theme.colorful, saved.general.auto_fade, saved.general.auto_fade_secs), (false, true, 5));
         // 输入到一半（只有负号）时不改设置
         assert!(!set_text(&mut s, Field::TaskbarX, "-"));
         assert_eq!(s.taskbar_lyric.offset, -20);

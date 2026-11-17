@@ -45,6 +45,8 @@ pub struct SettingsModel<'a> {
     pub hover_cell: Option<usize>,
     /// 标题条上的光（鼠标在窗口里时为 1）
     pub strip: f32,
+    /// 「多彩设置项」：开关按功能分组上色（原版的样子）；false = 跟着主题的素色
+    pub colorful: bool,
 }
 
 /// 色块里与当前颜色相同的一格（与原版一样只在完全相同时打勾：默认的焦点颜色不在色块里）
@@ -101,19 +103,18 @@ pub fn paint(c: &mut Canvas, m: &SettingsModel) {
         let r = it.r;
         match &it.w {
             Widget::Pill { tone, label, glyph, act } => {
-                pill::pill(c, r, *tone, st.dim);
-                if hot && !st.dim {
-                    c.fill(r.shrink(3), Rgba(255, 255, 255, 22));
-                }
+                // 多彩：按分组上色（原版）；素色：不看分组
+                let tone = m.colorful.then_some(*tone);
+                pill::pill(c, r, tone, st.dim, hot);
                 if let Some(g) = glyph {
-                    draw_glyph(c, *g, r.x + 20, r.y + 10, if st.dim { pill::dim_ink(*tone) } else { pill::PILL_TEXT });
+                    draw_glyph(c, *g, r.x + 20, r.y + 10, pill::pill_ink(tone, st.dim));
                 }
                 let text = if label.is_empty() { st.value.as_str() } else { label.as_str() };
                 if !text.is_empty() {
-                    pill::pill_text(c, r, text, *tone, st.dim);
+                    pill::pill_text(c, r, text, tone, st.dim);
                 }
                 if !matches!(act, Toggle::Act(_)) {
-                    pill::pill_box(c, r, *tone, st.on, st.dim);
+                    pill::pill_box(c, r, tone, st.on, st.dim);
                 }
             }
             Widget::Check(_, label) => pill::plain_check(c, r, label, st.on, hot),
@@ -144,7 +145,7 @@ pub fn paint(c: &mut Canvas, m: &SettingsModel) {
     }
 }
 
-/// 全局热键页药丸上的小图标（中心在 cx, cy）
+/// 全局热键页开关条上的小图标（中心在 cx, cy）
 fn draw_glyph(c: &mut Canvas, g: Glyph, cx: i32, cy: i32, col: Rgba) {
     let tri = |x0: f32, dir: f32| S::Poly(vec![(x0, -0.5), (x0, 8.5), (x0 + 7.0 * dir, 4.0)], 0.0);
     let speaker = S::Poly(vec![(0.0, 2.5), (2.5, 2.5), (5.5, 0.0), (5.5, 8.0), (2.5, 5.5), (0.0, 5.5)], 0.0);

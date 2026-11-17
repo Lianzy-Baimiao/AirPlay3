@@ -1,6 +1,8 @@
-//! 原版「配置」窗口的控件画法（照原版截图逐像素量出来的）：
-//! 彩色的“药丸”行（两圈暗边、顶上一抹高光、右边一个凹进去的勾选框）、灰色方块勾选框、
-//! 细边框的下拉框和输入框、色块、圆点滑块、凹槽分隔线
+//! 「配置」窗口的控件画法（位置、大小照原版截图逐像素量的）：
+//! 一行一个的开关条（右边一个凹进去的勾选框）、灰色方块勾选框、细边框的下拉框和输入框、色块、圆点滑块、凹槽分隔线。
+//! 开关条有两种样子（「颜色透明 → 多彩设置项」）：
+//! - 多彩（默认，原版的样子）：彩色的“药丸”，两圈暗边、顶上一抹高光，按功能分组上色
+//! - 素色：暗底、细边，颜色都从主题推出来，跟着皮肤走
 
 use crate::gui::canvas::{Canvas, R, Rgba};
 use crate::gui::text::{self, Font, Hint};
@@ -8,9 +10,9 @@ use crate::gui::theme;
 use crate::skin::sdf::{S, Shape};
 
 pub const FONT: Font = Font::px(12.0, false);
-/// 药丸上的文字
+/// 彩色药丸上的文字
 pub const PILL_TEXT: Rgba = Rgba::gray(0x3B);
-/// 灰掉的药丸：底色、勾选框按这个比例变暗
+/// 灰掉的彩色药丸：底色、勾选框按这个比例变暗
 const DIM: f32 = 0.28;
 
 /// 药丸的颜色组（原版按功能分组上色）
@@ -67,8 +69,31 @@ fn ring(c: &mut Canvas, r: R, col: Rgba, corner: f32) {
     }
 }
 
-/// 药丸：r 是最外圈（高 21）。两圈暗边，里面是底色，顶上几行有一点高光
-pub fn pill(c: &mut Canvas, r: R, tone: Tone, dim: bool) {
+/// 开关条上文字、图标的颜色（dim = 不能改、或关着的）。tone = Some 是多彩的药丸，None 是素色。
+/// 灰掉的彩色药丸上的字比底色再暗一点（几乎看不出来，与原版相同）
+pub fn pill_ink(tone: Option<Tone>, dim: bool) -> Rgba {
+    match tone {
+        Some(t) if dim => scale(t.rgb(), DIM * 0.72),
+        Some(_) => PILL_TEXT,
+        None => theme::g(if dim { 0x5E } else { 0xE0 }),
+    }
+}
+
+/// 开关条：r 是最外圈（高 21）
+pub fn pill(c: &mut Canvas, r: R, tone: Option<Tone>, dim: bool, hot: bool) {
+    let Some(tone) = tone else {
+        // 素色：外面一圈暗线（挨着的两条共用），里面一圈细边，中间是比面板亮一点的底
+        let (edge, fill) = match (dim, hot) {
+            (true, _) => (0x33, 0x29),
+            (false, true) => (0x78, 0x47),
+            (false, false) => (0x57, 0x38),
+        };
+        ring(c, r, theme::g(0x17), 0.4);
+        ring(c, r.shrink(1), theme::g(edge), 0.55);
+        c.fill(r.shrink(2), theme::g(fill));
+        return;
+    };
+    // 多彩：两圈暗边，里面是底色，顶上几行有一点高光
     ring(c, r, Rgba::gray(0x1E), 0.4);
     ring(c, r.shrink(1), Rgba::gray(0x3D), 0.55);
     ring(c, r.shrink(2), Rgba::gray(0x17), 0.75);
@@ -84,25 +109,40 @@ pub fn pill(c: &mut Canvas, r: R, tone: Tone, dim: bool) {
     for (x, y) in [(f.x, f.y), (x1, f.y), (f.x, y1), (x1, y1)] {
         put(c, x, y, Rgba::gray(0x17), 0.62);
     }
+    if hot && !dim {
+        c.fill(f, Rgba(255, 255, 255, 22));
+    }
 }
 
-/// 灰掉的药丸上文字、图标的颜色：比底色再暗一点（几乎看不出来，与原版相同）
-pub fn dim_ink(tone: Tone) -> Rgba {
-    scale(tone.rgb(), DIM * 0.72)
-}
-
-/// 药丸上的文字（左边留 5 像素）。原版里带中文的字比纯英文的（格式名、热键）高 1 像素
-pub fn pill_text(c: &mut Canvas, r: R, label: &str, tone: Tone, dim: bool) {
-    let col = if dim { dim_ink(tone) } else { PILL_TEXT };
+/// 开关条上的文字（左边留 5 像素）。原版里带中文的字比纯英文的（格式名、热键）高 1 像素
+pub fn pill_text(c: &mut Canvas, r: R, label: &str, tone: Option<Tone>, dim: bool) {
     c.push_clip(r.shrink(3));
     let y = if crate::util::text::contains_cjk(label) { r.y + 1 } else { r.y + 2 };
-    c.text(label, FONT, r.x + 8, y, col, Hint::ClearType);
+    c.text(label, FONT, r.x + 8, y, pill_ink(tone, dim), Hint::ClearType);
     c.pop_clip();
 }
 
-/// 药丸里的勾选框：在药丸右边，15 × 13，凹进去的样子；勾上时更暗、有白色的勾
-pub fn pill_box(c: &mut Canvas, pill: R, tone: Tone, on: bool, dim: bool) {
+/// 素色勾选框里勾的颜色：焦点颜色；它与勾选框的底分不清时（比如焦点颜色选了黑色）用文字的颜色
+fn tick_ink(bg: Rgba) -> Rgba {
+    let f = theme::focus();
+    let far = |a: u8, b: u8| (a as i32 - b as i32).abs();
+    if far(f.0, bg.0).max(far(f.1, bg.1)).max(far(f.2, bg.2)) >= 0x50 { f } else { theme::g(0xE0) }
+}
+
+/// 开关条里的勾选框：在右边，15 × 13，凹进去的样子
+pub fn pill_box(c: &mut Canvas, pill: R, tone: Option<Tone>, on: bool, dim: bool) {
     let b = R::new(pill.right() - 23, pill.y + 4, 15, 13);
+    let Some(tone) = tone else {
+        // 素色：暗格，勾上时里面是焦点颜色的勾
+        let bg = theme::g(if dim { 0x22 } else { 0x1E });
+        ring(c, b, theme::g(if dim { 0x3A } else if on { 0x84 } else { 0x68 }), 1.0);
+        c.fill(b.shrink(1), bg);
+        if on {
+            check(c, b.x + 2, b.y + 1, if dim { theme::g(0x5E) } else { tick_ink(bg) }, false);
+        }
+        return;
+    };
+    // 多彩：勾上时更暗、有白色的勾
     let base = if dim { scale(tone.rgb(), DIM) } else { tone.rgb() };
     let edge = scale(base, if on { 0.61 } else { 0.865 });
     ring(c, b, edge, 1.0);

@@ -169,6 +169,17 @@ impl App {
             }
             return Some(LRESULT(0));
         }
+        // 仅调试构建：自测自动渐隐。wParam：0 = 用真实的鼠标位置，1 = 当作鼠标在主界面上，2 = 当作不在
+        #[cfg(debug_assertions)]
+        if msg == WM_APP + 11 {
+            self.ui.fade.test_cursor = match wp.0 {
+                1 => Some(true),
+                2 => Some(false),
+                _ => None,
+            };
+            log::info!("自测自动渐隐：鼠标 {:?}，不透明度 {:.2}", self.ui.fade.test_cursor, self.ui.fade.level);
+            return Some(LRESULT(0));
+        }
         if let Some(r) = self.minibar_msg(hwnd, msg, wp, lp) {
             return Some(r);
         }

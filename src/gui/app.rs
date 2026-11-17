@@ -193,6 +193,10 @@ impl App {
             for h in hwnds {
                 super::window::set_frost(h, t.frost);
             }
+            // 自动渐隐期间面板的雾化关着（见 autofade.rs），完全显示后再按设置打开
+            if self.ui.fade.level < 1.0 {
+                self.set_pane_frost(false);
+            }
         }
         self.dirty_all();
         if let Some(m) = self.minibar.as_mut() {
@@ -234,6 +238,10 @@ impl App {
             if !w.dirty || !(self.pane_shown(i) || closing) || !self.paints(p) {
                 continue;
             }
+            // 自动渐隐已经隐完的面板不用画（重新显示时会再标记重画）
+            if p != Pane::Bar && self.ui.fade.hidden() {
+                continue;
+            }
             self.paint_pane(i);
         }
     }
@@ -251,6 +259,10 @@ impl App {
             let animating = self.apply_anim(i, &mut canvas);
             if super::resize::limits(pane).is_some() {
                 super::resize::grip_margins(&mut canvas, pane);
+            }
+            // 自动渐隐：面板整体变透明（连调整大小用的边一起，隐去后整个窗口点不到）
+            if pane != Pane::Bar {
+                super::anim::fade(&mut canvas, self.ui.fade.level);
             }
             // 仅调试构建：AIRPLAY3_DUMP=<目录> 时把各面板（含透明通道）存成 PNG，用于制作说明文档截图
             #[cfg(debug_assertions)]
