@@ -157,11 +157,15 @@ pub struct General {
     pub auto_fade: bool,
     /// 渐隐前等多少秒（1 ~ 60）
     pub auto_fade_secs: u32,
+    /// 自动渐隐开着时，哪些面板跟着隐去（默认三个都隐去；关掉的那个一直显示）
+    pub auto_fade_cover: bool,
+    pub auto_fade_eq: bool,
+    pub auto_fade_list: bool,
 }
 
 impl Default for General {
     fn default() -> Self {
-        Self { always_on_top: true, minimize_to_tray: false, close_to_tray: false, autostart: false, play_after_drop: true, global_wheel: true, auto_fade: false, auto_fade_secs: 3 }
+        Self { always_on_top: true, minimize_to_tray: false, close_to_tray: false, autostart: false, play_after_drop: true, global_wheel: true, auto_fade: false, auto_fade_secs: 3, auto_fade_cover: true, auto_fade_eq: true, auto_fade_list: true }
     }
 }
 
@@ -613,6 +617,10 @@ mod tests {
         // 旧配置里没有的开关：设置项默认多彩，面板默认不自动渐隐（等 3 秒）
         assert!(old.theme.colorful);
         assert_eq!((old.general.auto_fade, old.general.auto_fade_secs), (false, 3));
+        // 只有总开关的旧配置：三个面板都跟着隐去（和以前一样）
+        let old: Settings = serde_json::from_str(r#"{"general":{"auto_fade":true}}"#).unwrap();
+        let g = &old.general;
+        assert_eq!((g.auto_fade, g.auto_fade_cover, g.auto_fade_eq, g.auto_fade_list), (true, true, true, true));
         assert_eq!(partial.audio.buffer_ms, 60);
     }
 

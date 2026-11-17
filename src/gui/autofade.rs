@@ -1,5 +1,6 @@
 //! 自动渐隐（「配置 → 基本设置」，默认关着）：鼠标离开主界面一段时间后，歌词图片、均衡器、音乐列表
 //! 渐渐隐去，只留播放条（迷你条模式下只留迷你条）；鼠标移回播放条或面板原来的位置时重新显示。
+//! 三个面板在设置里分别开关：没勾的那个一直显示。
 //!
 //! 隐去的面板是全透明的：分层窗口全透明的地方点不到，所以每 30 毫秒看一次鼠标在屏幕上的位置，
 //! 不靠鼠标消息。拖动、开着菜单、在搜索框里打字、正在播放开关动画时不隐去。
@@ -15,8 +16,10 @@ const OUT_SECS: f32 = 0.5;
 const IN_SECS: f32 = 0.2;
 
 pub struct AutoFade {
-    /// 面板现在的不透明度（1 = 完全显示，0 = 完全隐去）
+    /// 跟着隐去的面板现在的不透明度（1 = 完全显示，0 = 完全隐去）
     pub level: f32,
+    /// 哪些面板跟着隐去：歌词图片、均衡器、音乐列表（设置里分别开关）
+    panes: [bool; 3],
     /// 上一次鼠标在主界面上（或界面正忙）的时刻
     seen: Instant,
     last: Instant,
@@ -31,6 +34,7 @@ impl AutoFade {
     pub fn new(now: Instant) -> AutoFade {
         AutoFade {
             level: 1.0,
+            panes: [true; 3],
             seen: now,
             last: now,
             moved: false,
@@ -57,44 +61,68 @@ impl AutoFade {
         self.moved
     }
 
-    /// 已经完全隐去、画面也已经提交过了（不用再画）
-    pub fn hidden(&self) -> bool {
-        self.level <= 0.0 && !self.moved
+    /// 换成这几个面板跟着隐去（歌词图片、均衡器、音乐列表）。返回 true = 和原来不一样（面板要重画）
+    pub fn pick(&mut self, panes: [bool; 3]) -> bool {
+        let changed = self.panes != panes;
+        self.panes = panes;
+        self.moved |= changed;
+        changed
+    }
+
+    /// 这个面板跟不跟着隐去（播放条从不隐去）
+    fn fades(&self, p: Pane) -> bool {
+        match p {
+            Pane::Bar => false,
+            Pane::Cover => self.panes[0],
+            Pane::Eq => self.panes[1],
+            Pane::List => self.panes[2],
+        }
+    }
+
+    /// 这个面板现在的不透明度
+    pub fn level_of(&self, p: Pane) -> f32 {
+        if self.fades(p) { self.level } else { 1.0 }
+    }
+
+    /// 这个面板已经完全隐去、画面也已经提交过了（不用再画）
+    pub fn hidden(&self, p: Pane) -> bool {
+        self.fades(p) && self.level <= 0.0 && !self.moved
     }
 }
 
 impl App {
     /// 每 30 毫秒：按鼠标的位置推进渐隐 / 重新显示
     pub fn tick_auto_fade(&mut self, now: Instant) {
-        let wait = {
+        let (wait, panes) = {
             let g = self.player.core.lock();
             let s = &g.settings.general;
-            s.auto_fade.then(|| Duration::from_secs(s.auto_fade_secs.clamp(1, 60) as u64))
+            let panes = [s.auto_fade_cover, s.auto_fade_eq, s.auto_fade_list];
+            let on = s.auto_fade && panes.contains(&true);
+            (on.then(|| Duration::from_secs(s.auto_fade_secs.clamp(1, 60) as u64)), panes)
         };
         let active = wait.is_none() || self.fade_blocked() || self.cursor_on_main();
         let was = self.ui.fade.level;
-        if !self.ui.fade.step(now, active, wait) {
+        let moved = self.ui.fade.step(now, active, wait);
+        // 设置里改了哪些面板跟着隐去：马上按新的来（刚取消的那个立即显示回来）
+        let picked = self.ui.fade.pick(panes);
+        if !moved && !picked {
             return;
         }
-        let level = self.ui.fade.level;
-        // 全透明的地方「透明雾化」照样把桌面弄模糊：开始隐去时先关掉面板的雾化，完全显示后再打开
-        if super::theme::get().frost {
-            if was >= 1.0 {
-                self.set_pane_frost(false);
-            } else if level >= 1.0 {
-                self.set_pane_frost(true);
-            }
+        // 全透明的地方「透明雾化」照样把桌面弄模糊：开始隐去时先关掉这些面板的雾化，完全显示后再打开
+        if super::theme::get().frost && (picked || was >= 1.0 || self.ui.fade.level >= 1.0) {
+            self.sync_pane_frost();
         }
         for p in [Pane::Cover, Pane::Eq, Pane::List] {
             self.dirty(p);
         }
     }
 
-    /// 面板（不含播放条）的透明雾化
-    pub(super) fn set_pane_frost(&self, on: bool) {
+    /// 面板（不含播放条）的透明雾化：按设置来，正在隐去 / 已经隐去的面板关着
+    pub(super) fn sync_pane_frost(&self) {
+        let frost = super::theme::get().frost;
         for (p, w) in &self.wins {
             if *p != Pane::Bar {
-                super::window::set_frost(w.hwnd, on);
+                super::window::set_frost(w.hwnd, frost && self.ui.fade.level_of(*p) >= 1.0);
             }
         }
     }
@@ -155,14 +183,14 @@ mod tests {
         // 过了 3 秒开始隐去，约 0.5 秒隐完；隐完后不再要求重画
         run(&mut f, &mut t, 0.3, false, wait);
         assert!(f.level > 0.0 && f.level < 1.0, "{}", f.level);
-        assert!(!f.hidden());
+        assert!(!f.hidden(Pane::List));
         run(&mut f, &mut t, 0.6, false, wait);
         assert_eq!(f.level, 0.0);
-        assert!(f.hidden());
+        assert!(f.hidden(Pane::List));
         // 鼠标移回来：约 0.2 秒重新显示
         t += Duration::from_millis(30);
         assert!(f.step(t, true, wait));
-        assert!(!f.hidden());
+        assert!(!f.hidden(Pane::List));
         run(&mut f, &mut t, 0.3, true, wait);
         assert_eq!(f.level, 1.0);
         // 鼠标一直在上面就一直显示；离开后重新等 3 秒
@@ -174,6 +202,28 @@ mod tests {
         // 隐去以后关掉功能：马上显示回来
         run(&mut f, &mut t, 0.3, false, None);
         assert_eq!(f.level, 1.0);
+    }
+
+    /// 三个面板分别开关：没勾的一直显示，隐去以后改了开关马上按新的来
+    #[test]
+    fn each_pane_fades_only_when_picked() {
+        let mut t = Instant::now();
+        let mut f = AutoFade::new(t);
+        let wait = Some(Duration::from_secs(3));
+        assert!(f.pick([true, false, true]));
+        assert!(!f.pick([true, false, true]));
+        run(&mut f, &mut t, 4.0, false, wait);
+        let levels = |f: &AutoFade| [Pane::Bar, Pane::Cover, Pane::Eq, Pane::List].map(|p| f.level_of(p));
+        let hidden = |f: &AutoFade| [Pane::Bar, Pane::Cover, Pane::Eq, Pane::List].map(|p| f.hidden(p));
+        assert_eq!(levels(&f), [1.0, 0.0, 1.0, 0.0]);
+        assert_eq!(hidden(&f), [false, true, false, true]);
+        // 隐去以后把音乐列表取消、均衡器勾上：这一帧两个都要重画，之后均衡器算隐去了
+        assert!(f.pick([true, true, false]));
+        assert_eq!(levels(&f), [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(hidden(&f), [false; 4]);
+        t += Duration::from_millis(30);
+        assert!(!f.step(t, false, wait));
+        assert_eq!(hidden(&f), [false, true, true, false]);
     }
 
     /// 隐去的面板整个画布全透明（点不到，也看不见调整大小用的边）

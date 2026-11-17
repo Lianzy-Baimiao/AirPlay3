@@ -57,8 +57,12 @@ pub enum Key {
     Frost,
     /// 多彩设置项（配置里的开关按功能分组上色）
     Colorful,
-    /// 鼠标离开后自动渐隐歌词图片、均衡器、音乐列表
+    /// 鼠标离开后自动渐隐面板（总开关）
     AutoFade,
+    /// 自动渐隐时，歌词图片 / 均衡器 / 音乐列表是否跟着隐去
+    FadeCover,
+    FadeEq,
+    FadeList,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -164,6 +168,9 @@ pub fn get(s: &Settings, k: Key) -> bool {
         Key::Frost => s.theme.frost,
         Key::Colorful => s.theme.colorful,
         Key::AutoFade => s.general.auto_fade,
+        Key::FadeCover => s.general.auto_fade_cover,
+        Key::FadeEq => s.general.auto_fade_eq,
+        Key::FadeList => s.general.auto_fade_list,
     }
 }
 
@@ -208,6 +215,9 @@ pub fn set(s: &mut Settings, k: Key, v: bool) {
         Key::Frost => s.theme.frost = v,
         Key::Colorful => s.theme.colorful = v,
         Key::AutoFade => s.general.auto_fade = v,
+        Key::FadeCover => s.general.auto_fade_cover = v,
+        Key::FadeEq => s.general.auto_fade_eq = v,
+        Key::FadeList => s.general.auto_fade_list = v,
     }
 }
 
@@ -217,6 +227,7 @@ pub fn enabled(s: &Settings, k: Key) -> bool {
         Key::ResumeLast => s.playback.autoplay,
         Key::DownloadLyric | Key::AlbumPic | Key::ArtistPic | Key::AutoTag => s.lyrics.auto_download,
         Key::MediaPlay | Key::MediaPrev | Key::MediaNext | Key::MediaMute | Key::MediaVolDown | Key::MediaVolUp => s.hotkeys.media_keys,
+        Key::FadeCover | Key::FadeEq | Key::FadeList => s.general.auto_fade,
         _ => true,
     }
 }
@@ -351,6 +362,17 @@ mod tests {
         assert_eq!(s.general.auto_fade_secs, 60);
         assert!(!set_text(&mut s, Field::FadeSecs, ""));
         assert!(set_text(&mut s, Field::FadeSecs, "5"));
+        // 三个面板分别开关，默认都跟着隐去；总开关关着时这三个是灰的
+        for k in [Key::FadeCover, Key::FadeEq, Key::FadeList] {
+            assert!(get(&s, k) && enabled(&s, k));
+        }
+        set(&mut s, Key::FadeEq, false);
+        assert_eq!((get(&s, Key::FadeCover), get(&s, Key::FadeEq), get(&s, Key::FadeList)), (true, false, true));
+        let saved: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(!saved.general.auto_fade_eq && saved.general.auto_fade_list);
+        set(&mut s, Key::AutoFade, false);
+        assert!(!enabled(&s, Key::FadeEq) && !get(&s, Key::FadeEq) && get(&s, Key::FadeList));
+        set(&mut s, Key::AutoFade, true);
         // 设置项默认多彩，可以关掉；关掉后重启仍关着
         assert!(get(&s, Key::Colorful));
         set(&mut s, Key::Colorful, false);
