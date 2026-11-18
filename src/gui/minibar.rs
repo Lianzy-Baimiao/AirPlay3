@@ -575,7 +575,8 @@ impl App {
                 m.hover[which] = false;
                 self.paint_minibar();
             }
-            WM_LBUTTONDOWN => {
+            // 连着点按钮时第二下是双击消息，照样算点按钮；双击空白处回到主界面
+            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
                 if which == 0 && BTN_PREV.contains(x, y) {
                     self.player.prev();
                 } else if which == 0 && BTN_PLAY.contains(x, y) {
@@ -597,6 +598,9 @@ impl App {
                     // 歌词条的 ✕：关掉歌词条（右键菜单「迷你歌词」再打开）
                     self.mini_strip(Some(false));
                     return Some(LRESULT(0));
+                } else if msg == WM_LBUTTONDBLCLK {
+                    self.toggle_minibar();
+                    return Some(LRESULT(0));
                 } else {
                     let rect = |p: &Popup| R::new(p.pos.0, p.pos.1, W, H);
                     m.drag = Some(MiniDrag { lead: which, cursor: super::resize::cursor(), rects: [rect(&m.top), rect(&m.bottom)], taskbar: super::resize::taskbar_rect() });
@@ -613,7 +617,6 @@ impl App {
                     self.end_minibar_drag();
                 }
             }
-            WM_LBUTTONDBLCLK => self.toggle_minibar(),
             // Alt+F4 等：与主界面一样（完全退出，或开了「点关闭按钮缩到托盘」时缩到托盘）
             WM_CLOSE => self.request_close(),
             WM_RBUTTONUP => self.act(super::menu::Act::MainMenu),

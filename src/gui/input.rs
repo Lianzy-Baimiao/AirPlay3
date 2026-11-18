@@ -139,7 +139,8 @@ impl App {
                     self.ui.drag = Drag::Volume;
                     self.volume_at(y);
                 }
-                // 播放条空白处：与贴着的面板一起移动
+                // 播放条空白处：双击换成迷你条（原版），按住拖动时与贴着的面板一起移动
+                _ if dbl => self.act(Act::Minibar),
                 _ => self.start_move(Pane::Bar),
             },
             Pane::Eq => {
